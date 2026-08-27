@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import OBR from '@owlbear-rodeo/sdk'
-import './App.css'
 
 function App() {
   const [ready, setReady] = useState(false)
@@ -15,24 +14,20 @@ function App() {
   }, [])
 
   if (!ready) {
-    return <div className="loading">Завантаження WarpSong...</div>
+    return (
+      <div style={{ padding: 20, color: 'white', background: '#1a1a1a', height: '100vh' }}>
+        Loading WarpSong...
+      </div>
+    )
   }
 
   return (
-    <div className="app">
-      <header className="header">
-        <h1>WarpSong</h1>
-        <span className="role">{role === 'GM' ? 'GM' : 'Player'}</span>
-      </header>
-
-      <main className="main">
-        <p>Скелет працює. Далі додамо папки, стріми і YouTube.</p>
-        {role === 'GM' ? (
-          <p>Ти ГМ — тут буде панель керування.</p>
-        ) : (
-          <p>Ти гравець — тут буде плеєр-в’ю.</p>
-        )}
-      </main>
+    <div style={{ padding: 20, color: 'white', background: '#1a1a1a', height: '100vh', fontFamily: 'sans-serif' }}>
+      <h2 style={{ margin: 0, marginBottom: 12 }}>WarpSong</h2>
+      <p>Role: <b>{role}</b></p>
+      <p style={{ opacity: 0.7, fontSize: 14 }}>
+        Базовий скелет готовий. Далі додамо папки, стріми і YouTube.
+      </p>
     </div>
   )
 }
