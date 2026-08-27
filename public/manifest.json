@@ -1,0 +1,21 @@
+{
+  "name": "WarpSong",
+  "version": "1.0.0",
+  "manifest_version": 1,
+  "author": "Omegonius",
+  "description": "Mix sound effects and music with looping, fading, and more for Owlbear Rodeo",
+  "icon": "/logo.png",
+  "action": {
+    "title": "WarpSong",
+    "icon": "/icon.svg",
+    "popover": "/",
+    "height": 420,
+    "width": 600
+  },
+  "permissions": [
+    {
+      "name": "autoplay",
+      "reason": "Required to play YouTube audio for players"
+    }
+  ]
+}
