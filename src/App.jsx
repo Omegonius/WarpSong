@@ -4,11 +4,23 @@ import useStore from './store'
 import Player from './Player'
 import './index.css'
 
+const STREAM_EMOJIS = [
+  '⚔️', '🗡️', '🛡️', '🏹',
+  '🌲', '🌳', '🍃', '🍄',
+  '💨', '🌪️', '🌊', '🌧️',
+  '🔥', '💥', '⚡', '🌋',
+  '😠', '😈', '💀', '🩸',
+  '💃', '🕺', '🎉', '🍻',
+  '🏰', '🏚️', '🌙', '⭐',
+  '🐉', '🐺', '🦇', '🕷️',
+  '🎵', '🎶', '🥁', '🎻',
+  '🏙️', '🚢', '🚂', '✈️',
+]
+
 function App() {
   const [ready, setReady] = useState(false)
   const [role, setRole] = useState(null)
 
-  // navigation: home | folder | stream
   const [view, setView] = useState('home')
   const [activeFolderId, setActiveFolderId] = useState(null)
   const [activeStreamId, setActiveStreamId] = useState(null)
@@ -20,26 +32,21 @@ function App() {
     isLocalOnly,
     globalVolume,
     isMuted,
-
     toggleStream,
     stopAll,
     setPaused,
     setLocalOnly,
     setGlobalVolume,
     setMuted,
-
     addFolder,
     updateFolder,
     deleteFolder,
-
     addStream,
     updateStream,
     deleteStream,
-
     addLink,
     updateLink,
     deleteLink,
-
     applyRemoteState,
     exportData,
     importData,
@@ -168,7 +175,6 @@ function App() {
   // ---------- GM VIEW ----------
   return (
     <div className="app">
-      {/* TOP BAR */}
       <div className="topbar">
         <div className="topbar-left">
           {view !== 'home' && (
@@ -194,18 +200,11 @@ function App() {
           <div className="topbar-actions">
             <button onClick={handleLoad}>Load</button>
             <button onClick={handleSave}>Save</button>
-            <button
-              onClick={() => {
-                addFolder()
-              }}
-            >
-              + Folder
-            </button>
+            <button onClick={() => addFolder()}>+ Folder</button>
           </div>
         )}
       </div>
 
-      {/* GLOBAL CONTROLS */}
       <div className="global-controls">
         <button
           className={isLocalOnly ? 'active' : ''}
@@ -233,7 +232,7 @@ function App() {
         </button>
       </div>
 
-      {/* ========== HOME: FOLDERS GRID ========== */}
+      {/* HOME */}
       {view === 'home' && (
         <div className="grid">
           {folders.map((folder) => (
@@ -249,10 +248,7 @@ function App() {
             </div>
           ))}
 
-          <div
-            className="tile add-tile"
-            onClick={() => addFolder()}
-          >
+          <div className="tile add-tile" onClick={() => addFolder()}>
             <div className="tile-emoji">＋</div>
             <div className="tile-name">New Folder</div>
           </div>
@@ -263,7 +259,7 @@ function App() {
         </div>
       )}
 
-      {/* ========== FOLDER: STREAMS GRID ========== */}
+      {/* FOLDER */}
       {view === 'folder' && activeFolder && (
         <div className="folder-screen">
           <div className="folder-toolbar">
@@ -278,7 +274,7 @@ function App() {
             <input
               className="emoji-input"
               value={activeFolder.emoji || '📁'}
-              maxLength={2}
+              maxLength={4}
               onChange={(e) =>
                 updateFolder(activeFolder.id, { emoji: e.target.value })
               }
@@ -317,7 +313,9 @@ function App() {
                     className="tile-main"
                     onClick={() => toggleStream(stream.id)}
                   >
-                    <div className="tile-emoji">{isPlaying ? '🔊' : '🎵'}</div>
+                    <div className="tile-emoji">
+                      {isPlaying ? '🔊' : stream.emoji || '🎵'}
+                    </div>
                     <div className="tile-name">{stream.name}</div>
                     <div className="tile-meta">
                       {stream.links.length} link
@@ -348,7 +346,7 @@ function App() {
         </div>
       )}
 
-      {/* ========== STREAM SETTINGS ========== */}
+      {/* STREAM SETTINGS */}
       {view === 'stream' && activeFolder && activeStream && (
         <div className="stream-screen">
           <div className="settings-block">
@@ -362,6 +360,41 @@ function App() {
                   })
                 }
               />
+            </label>
+
+            <label>
+              Emoji
+              <div className="emoji-picker-row">
+                <input
+                  className="emoji-input"
+                  value={activeStream.emoji || '🎵'}
+                  maxLength={4}
+                  onChange={(e) =>
+                    updateStream(activeFolder.id, activeStream.id, {
+                      emoji: e.target.value,
+                    })
+                  }
+                  title="Emoji"
+                />
+                <div className="emoji-presets">
+                  {STREAM_EMOJIS.map((em) => (
+                    <button
+                      key={em}
+                      type="button"
+                      className={`emoji-preset-btn ${
+                        activeStream.emoji === em ? 'selected' : ''
+                      }`}
+                      onClick={() =>
+                        updateStream(activeFolder.id, activeStream.id, {
+                          emoji: em,
+                        })
+                      }
+                    >
+                      {em}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </label>
 
             <label>
@@ -446,7 +479,6 @@ function App() {
                     ×
                   </button>
                 </div>
-
                 <input
                   className="url-input"
                   placeholder="https://youtube.com/watch?v=..."
@@ -457,7 +489,6 @@ function App() {
                     })
                   }
                 />
-
                 <label>
                   Source volume
                   <input
@@ -473,7 +504,6 @@ function App() {
                     }
                   />
                 </label>
-
                 <label className="checkbox">
                   <input
                     type="checkbox"

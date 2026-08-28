@@ -6,11 +6,13 @@ const useStore = create((set, get) => ({
       id: 'folder-1',
       name: 'Ambience',
       color: '#4CAF50',
+      emoji: '🌲',
       collapsed: false,
       streams: [
         {
           id: 'stream-1',
           name: 'Forest',
+          emoji: '🌲',
           volume: 0.7,
           fadeOut: 3,
           fadeIn: 0,
@@ -39,14 +41,14 @@ const useStore = create((set, get) => ({
     set((state) => ({
       folders: [
         ...state.folders,
-{
-  id: `folder-${Date.now()}`,
-  name: 'New Folder',
-  color: '#4CAF50',
-  emoji: '📁',
-  collapsed: false,
-  streams: [],
-},
+        {
+          id: `folder-${Date.now()}`,
+          name: 'New Folder',
+          color: '#4CAF50',
+          emoji: '📁',
+          collapsed: false,
+          streams: [],
+        },
       ],
     })),
 
@@ -91,6 +93,7 @@ const useStore = create((set, get) => ({
                 {
                   id: `stream-${Date.now()}`,
                   name: 'New Stream',
+                  emoji: '🎵',
                   volume: 0.7,
                   fadeOut: 3,
                   fadeIn: 0,
@@ -232,9 +235,9 @@ const useStore = create((set, get) => ({
       playingStreams: data.playingStreams || {},
       isPaused: !!data.isPaused,
       isLocalOnly: !!data.isLocalOnly,
-      // folders поки не синхронізуємо (занадто великий об'єм)
     })
   },
+
   // ---------- SAVE / LOAD ----------
   exportData: () => {
     const state = get()

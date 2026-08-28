@@ -369,3 +369,45 @@ button.danger {
   align-items: center;
   gap: 10px;
 }
+
+.emoji-picker-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.emoji-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+}
+
+.emoji-preset-btn {
+  width: 36px;
+  height: 36px;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.emoji-preset-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.emoji-preset-btn.selected {
+  border-color: #bb99ff;
+  background: rgba(187, 153, 255, 0.25);
+}
