@@ -1,0 +1,55 @@
+.autoplay-overlay {
+    z-index: 1;
+    font-size: 18px;
+}
+
+.chromium-overlay {
+    background-color: rgba(0, 0, 0, 0.85);
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+}
+
+.gm-overlay-top {
+    margin-bottom: 15px;
+}
+
+.gm-overlay-text {
+    color: white;
+    font-size: 18px;
+    padding-left: 15px;
+    padding-right: 15px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    flex: 1;
+}
+
+.overlay-text {
+    color: white;
+    font-size: 10px;
+    padding-left: 15px;
+    padding-right: 15px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+    flex: 1;
+}
+
+.instructions-link {
+    color: rgb(187, 153, 255);
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.gm-overlay-ignore {
+    color: rgb(187, 153, 255);
+    cursor: pointer;
+    font-size: 12px;
+    text-decoration: underline;
+    margin-bottom: 25px;
+}

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-const useStore = create((set) => ({
+const useStore = create((set, get) => ({
   folders: [
     {
       id: 'folder-1',
@@ -35,27 +35,25 @@ const useStore = create((set) => ({
   isMuted: false,
 
   // ---------- FOLDERS ----------
-
   addFolder: () =>
     set((state) => ({
       folders: [
         ...state.folders,
-        {
-          id: `folder-${Date.now()}`,
-          name: 'New Folder',
-          color: '#4CAF50',
-          collapsed: false,
-          streams: [],
-        },
+{
+  id: `folder-${Date.now()}`,
+  name: 'New Folder',
+  color: '#4CAF50',
+  emoji: '📁',
+  collapsed: false,
+  streams: [],
+},
       ],
     })),
 
   updateFolder: (folderId, changes) =>
     set((state) => ({
       folders: state.folders.map((folder) =>
-        folder.id === folderId
-          ? { ...folder, ...changes }
-          : folder
+        folder.id === folderId ? { ...folder, ...changes } : folder
       ),
     })),
 
@@ -63,11 +61,9 @@ const useStore = create((set) => ({
     set((state) => {
       const folder = state.folders.find((f) => f.id === folderId)
       const playingStreams = { ...state.playingStreams }
-
       folder?.streams.forEach((stream) => {
         delete playingStreams[stream.id]
       })
-
       return {
         folders: state.folders.filter((folder) => folder.id !== folderId),
         playingStreams,
@@ -81,10 +77,9 @@ const useStore = create((set) => ({
           ? { ...folder, collapsed: !folder.collapsed }
           : folder
       ),
-    }),
+    })),
 
   // ---------- STREAMS ----------
-
   addStream: (folderId) =>
     set((state) => ({
       folders: state.folders.map((folder) =>
@@ -114,9 +109,7 @@ const useStore = create((set) => ({
           ? {
               ...folder,
               streams: folder.streams.map((stream) =>
-                stream.id === streamId
-                  ? { ...stream, ...changes }
-                  : stream
+                stream.id === streamId ? { ...stream, ...changes } : stream
               ),
             }
           : folder
@@ -127,7 +120,6 @@ const useStore = create((set) => ({
     set((state) => {
       const playingStreams = { ...state.playingStreams }
       delete playingStreams[streamId]
-
       return {
         folders: state.folders.map((folder) =>
           folder.id === folderId
@@ -144,7 +136,6 @@ const useStore = create((set) => ({
     }),
 
   // ---------- LINKS ----------
-
   addLink: (folderId, streamId) =>
     set((state) => ({
       folders: state.folders.map((folder) =>
@@ -184,9 +175,7 @@ const useStore = create((set) => ({
                   ? {
                       ...stream,
                       links: stream.links.map((link) =>
-                        link.id === linkId
-                          ? { ...link, ...changes }
-                          : link
+                        link.id === linkId ? { ...link, ...changes } : link
                       ),
                     }
                   : stream
@@ -206,9 +195,7 @@ const useStore = create((set) => ({
                 stream.id === streamId
                   ? {
                       ...stream,
-                      links: stream.links.filter(
-                        (link) => link.id !== linkId
-                      ),
+                      links: stream.links.filter((link) => link.id !== linkId),
                     }
                   : stream
               ),
@@ -218,7 +205,6 @@ const useStore = create((set) => ({
     })),
 
   // ---------- PLAYBACK STATE ----------
-
   toggleStream: (streamId) =>
     set((state) => ({
       playingStreams: {
@@ -238,6 +224,34 @@ const useStore = create((set) => ({
   setLocalOnly: (value) => set({ isLocalOnly: value }),
   setGlobalVolume: (value) => set({ globalVolume: value }),
   setMuted: (value) => set({ isMuted: value }),
+
+  // ---------- SYNC FROM METADATA ----------
+  applyRemoteState: (data) => {
+    if (!data) return
+    set({
+      playingStreams: data.playingStreams || {},
+      isPaused: !!data.isPaused,
+      isLocalOnly: !!data.isLocalOnly,
+      // folders поки не синхронізуємо (занадто великий об'єм)
+    })
+  },
+  // ---------- SAVE / LOAD ----------
+  exportData: () => {
+    const state = get()
+    return {
+      version: 1,
+      folders: state.folders,
+    }
+  },
+
+  importData: (data) => {
+    if (!data || !data.folders) return
+    set({
+      folders: data.folders,
+      playingStreams: {},
+      isPaused: false,
+    })
+  },
 }))
 
 export default useStore

@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react'
 import OBR from '@owlbear-rodeo/sdk'
 import useStore from './store'
+import Player from './Player'
 import './index.css'
 
 function App() {
   const [ready, setReady] = useState(false)
   const [role, setRole] = useState(null)
-  const [editingFolder, setEditingFolder] = useState(null)
-  const [editingStream, setEditingStream] = useState(null)
+
+  // navigation: home | folder | stream
+  const [view, setView] = useState('home')
+  const [activeFolderId, setActiveFolderId] = useState(null)
+  const [activeStreamId, setActiveStreamId] = useState(null)
 
   const {
     folders,
@@ -27,7 +31,6 @@ function App() {
     addFolder,
     updateFolder,
     deleteFolder,
-    toggleFolder,
 
     addStream,
     updateStream,
@@ -36,6 +39,10 @@ function App() {
     addLink,
     updateLink,
     deleteLink,
+
+    applyRemoteState,
+    exportData,
+    importData,
   } = useStore()
 
   useEffect(() => {
@@ -43,24 +50,101 @@ function App() {
       setReady(true)
       const playerRole = await OBR.player.getRole()
       setRole(playerRole)
+
+      OBR.room.onMetadataChange((metadata) => {
+        const data = metadata['warpsong']
+        if (data) applyRemoteState(data)
+      })
+
+      const current = await OBR.room.getMetadata()
+      if (current['warpsong']) applyRemoteState(current['warpsong'])
     })
   }, [])
+
+  useEffect(() => {
+    if (role !== 'GM') return
+    if (isLocalOnly) return
+
+    OBR.room.setMetadata({
+      warpsong: {
+        playingStreams,
+        isPaused,
+        isLocalOnly,
+      },
+    })
+  }, [playingStreams, isPaused, isLocalOnly, role])
+
+  const handleSave = () => {
+    const data = exportData()
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: 'application/json',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'warpsong.djinni.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleLoad = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json,.djinni,application/json'
+    input.onchange = (e) => {
+      const file = e.target.files?.[0]
+      if (!file) return
+      const reader = new FileReader()
+      reader.onload = () => {
+        try {
+          importData(JSON.parse(reader.result))
+        } catch {
+          alert('Invalid file')
+        }
+      }
+      reader.readAsText(file)
+    }
+    input.click()
+  }
+
+  const activeFolder = folders.find((f) => f.id === activeFolderId)
+  const activeStream = activeFolder?.streams.find((s) => s.id === activeStreamId)
+
+  const openFolder = (folderId) => {
+    setActiveFolderId(folderId)
+    setActiveStreamId(null)
+    setView('folder')
+  }
+
+  const openStream = (streamId) => {
+    setActiveStreamId(streamId)
+    setView('stream')
+  }
+
+  const goBack = () => {
+    if (view === 'stream') {
+      setActiveStreamId(null)
+      setView('folder')
+    } else if (view === 'folder') {
+      setActiveFolderId(null)
+      setView('home')
+    }
+  }
 
   if (!ready) {
     return <div className="loading">Loading WarpSong...</div>
   }
 
+  // ---------- PLAYER VIEW ----------
   if (role === 'PLAYER') {
     return (
       <div className="app">
-        <div className="header">
+        <div className="topbar">
           <h2>WarpSong</h2>
-          <span className="subtitle">Player View</span>
+          <span className="subtitle">Player</span>
         </div>
-
         <div className="player-view">
           <p>GM is controlling the music</p>
-
           <label className="control-row">
             Volume
             <input
@@ -69,440 +153,350 @@ function App() {
               max="1"
               step="0.01"
               value={globalVolume}
-              onChange={(e) =>
-                setGlobalVolume(Number(e.target.value))
-              }
+              onChange={(e) => setGlobalVolume(Number(e.target.value))}
             />
           </label>
-
           <button onClick={() => setMuted(!isMuted)}>
             {isMuted ? 'Unmute' : 'Mute'}
           </button>
         </div>
+        <Player />
       </div>
     )
   }
 
+  // ---------- GM VIEW ----------
   return (
     <div className="app">
-      {/* HEADER */}
-
-      <div className="header">
-        <div className="title-row">
+      {/* TOP BAR */}
+      <div className="topbar">
+        <div className="topbar-left">
+          {view !== 'home' && (
+            <button className="back-btn" onClick={goBack}>
+              ← Back
+            </button>
+          )}
           <div>
-            <h2>WarpSong</h2>
-            <span className="subtitle">Music Player</span>
+            <h2>
+              {view === 'home' && 'WarpSong'}
+              {view === 'folder' && (activeFolder?.name || 'Folder')}
+              {view === 'stream' && (activeStream?.name || 'Stream')}
+            </h2>
+            <span className="subtitle">
+              {view === 'home' && 'Folders'}
+              {view === 'folder' && `${activeFolder?.streams.length || 0} streams`}
+              {view === 'stream' && 'Settings'}
+            </span>
           </div>
-
-          <button
-            className="add-folder-button"
-            onClick={addFolder}
-          >
-            + Folder
-          </button>
         </div>
 
-        <div className="header-controls">
-          <button
-            className={isLocalOnly ? 'active' : ''}
-            onClick={() => setLocalOnly(!isLocalOnly)}
-          >
-            {isLocalOnly ? 'Local' : 'Shared'}
-          </button>
-
-          <button onClick={() => setPaused(!isPaused)}>
-            {isPaused ? 'Resume' : 'Pause'}
-          </button>
-
-          <button onClick={stopAll}>
-            Stop All
-          </button>
-
-          <label className="volume">
-            Volume
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={globalVolume}
-              onChange={(e) =>
-                setGlobalVolume(Number(e.target.value))
-              }
-            />
-          </label>
-
-          <button onClick={() => setMuted(!isMuted)}>
-            {isMuted ? 'Unmute' : 'Mute'}
-          </button>
-        </div>
-      </div>
-
-      {/* FOLDERS */}
-
-      <div className="folders">
-        {folders.map((folder) => (
-          <div
-            key={folder.id}
-            className="folder"
-          >
-            {/* FOLDER HEADER */}
-
-            <div
-              className="folder-header"
-              style={{
-                borderLeft: `4px solid ${folder.color}`,
+        {view === 'home' && (
+          <div className="topbar-actions">
+            <button onClick={handleLoad}>Load</button>
+            <button onClick={handleSave}>Save</button>
+            <button
+              onClick={() => {
+                addFolder()
               }}
             >
-              <button
-                className="collapse-button"
-                onClick={() => toggleFolder(folder.id)}
-              >
-                {folder.collapsed ? '▶' : '▼'}
-              </button>
-
-              {editingFolder === folder.id ? (
-                <input
-                  className="edit-name"
-                  autoFocus
-                  defaultValue={folder.name}
-                  onBlur={(e) => {
-                    updateFolder(folder.id, {
-                      name: e.target.value || 'Folder',
-                    })
-                    setEditingFolder(null)
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      updateFolder(folder.id, {
-                        name: e.target.value || 'Folder',
-                      })
-                      setEditingFolder(null)
-                    }
-
-                    if (e.key === 'Escape') {
-                      setEditingFolder(null)
-                    }
-                  }}
-                />
-              ) : (
-                <span
-                  className="folder-name"
-                  onDoubleClick={() =>
-                    setEditingFolder(folder.id)
-                  }
-                >
-                  {folder.name}
-                </span>
-              )}
-
-              <input
-                className="color-picker"
-                type="color"
-                value={folder.color}
-                onChange={(e) =>
-                  updateFolder(folder.id, {
-                    color: e.target.value,
-                  })
-                }
-              />
-
-              <button
-                className="folder-action"
-                onClick={() =>
-                  setEditingFolder(folder.id)
-                }
-                title="Rename"
-              >
-                ✎
-              </button>
-
-              <button
-                className="folder-action danger"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      `Delete folder "${folder.name}"?`
-                    )
-                  ) {
-                    deleteFolder(folder.id)
-                  }
-                }}
-                title="Delete folder"
-              >
-                ×
-              </button>
-            </div>
-
-            {/* STREAMS */}
-
-            {!folder.collapsed && (
-              <>
-                <div className="streams">
-                  {folder.streams.map((stream) => {
-                    const isPlaying =
-                      !!playingStreams[stream.id]
-
-                    return (
-                      <div
-                        key={stream.id}
-                        className={`stream ${
-                          isPlaying ? 'playing' : ''
-                        }`}
-                      >
-                        <div
-                          className="stream-main"
-                          onClick={() =>
-                            toggleStream(stream.id)
-                          }
-                        >
-                          <div className="stream-name">
-                            {isPlaying ? '▶ ' : '▶︎ '}
-                            {stream.name}
-                          </div>
-
-                          <div className="stream-meta">
-                            {stream.links.length} link
-                            {stream.links.length === 1
-                              ? ''
-                              : 's'}
-                          </div>
-                        </div>
-
-                        <button
-                          className="stream-edit"
-                          onClick={() =>
-                            setEditingStream(
-                              editingStream === stream.id
-                                ? null
-                                : stream.id
-                            )
-                          }
-                        >
-                          ⚙
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {/* STREAM EDITOR */}
-
-                {folder.streams.map((stream) =>
-                  editingStream === stream.id ? (
-                    <div
-                      key={`editor-${stream.id}`}
-                      className="stream-editor"
-                    >
-                      <div className="editor-title">
-                        <strong>Stream Settings</strong>
-
-                        <button
-                          className="danger-text"
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                `Delete "${stream.name}"?`
-                              )
-                            ) {
-                              deleteStream(
-                                folder.id,
-                                stream.id
-                              )
-                              setEditingStream(null)
-                            }
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-
-                      {/* NAME */}
-
-                      <label>
-                        Name
-                        <input
-                          value={stream.name}
-                          onChange={(e) =>
-                            updateStream(
-                              folder.id,
-                              stream.id,
-                              {
-                                name: e.target.value,
-                              }
-                            )
-                          }
-                        />
-                      </label>
-
-                      {/* VOLUME */}
-
-                      <label>
-                        Volume
-                        <input
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.01"
-                          value={stream.volume}
-                          onChange={(e) =>
-                            updateStream(
-                              folder.id,
-                              stream.id,
-                              {
-                                volume: Number(
-                                  e.target.value
-                                ),
-                              }
-                            )
-                          }
-                        />
-                      </label>
-
-                      {/* FADE */}
-
-                      <div className="two-columns">
-                        <label>
-                          Fade In (sec)
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.5"
-                            value={stream.fadeIn}
-                            onChange={(e) =>
-                              updateStream(
-                                folder.id,
-                                stream.id,
-                                {
-                                  fadeIn: Number(
-                                    e.target.value
-                                  ),
-                                }
-                              )
-                            }
-                          />
-                        </label>
-
-                        <label>
-                          Fade Out (sec)
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.5"
-                            value={stream.fadeOut}
-                            onChange={(e) =>
-                              updateStream(
-                                folder.id,
-                                stream.id,
-                                {
-                                  fadeOut: Number(
-                                    e.target.value
-                                  ),
-                                }
-                              )
-                            }
-                          />
-                        </label>
-                      </div>
-
-                      {/* LINKS */}
-
-                      <div className="links-header">
-                        <strong>Sources</strong>
-
-                        <button
-                          onClick={() =>
-                            addLink(
-                              folder.id,
-                              stream.id
-                            )
-                          }
-                        >
-                          + Link
-                        </button>
-                      </div>
-
-                      {stream.links.map((link, index) => (
-                        <div
-                          key={link.id}
-                          className="link-editor"
-                        >
-                          <div className="link-number">
-                            #{index + 1}
-                          </div>
-
-                          <input
-                            className="url-input"
-                            placeholder="YouTube URL"
-                            value={link.url}
-                            onChange={(e) =>
-                              updateLink(
-                                folder.id,
-                                stream.id,
-                                link.id,
-                                {
-                                  url: e.target.value,
-                                }
-                              )
-                            }
-                          />
-
-                          <label className="checkbox">
-                            <input
-                              type="checkbox"
-                              checked={link.loop}
-                              onChange={(e) =>
-                                updateLink(
-                                  folder.id,
-                                  stream.id,
-                                  link.id,
-                                  {
-                                    loop: e.target.checked,
-                                  }
-                                )
-                              }
-                            />
-                            Loop
-                          </label>
-
-                          <button
-                            className="delete-link"
-                            onClick={() =>
-                              deleteLink(
-                                folder.id,
-                                stream.id,
-                                link.id
-                              )
-                            }
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null
-                )}
-
-                <button
-                  className="add-stream"
-                  onClick={() => addStream(folder.id)}
-                >
-                  + Add Stream
-                </button>
-              </>
-            )}
-          </div>
-        ))}
-
-        {folders.length === 0 && (
-          <div className="empty">
-            No folders.
-            <button onClick={addFolder}>
-              Create Folder
+              + Folder
             </button>
           </div>
         )}
       </div>
+
+      {/* GLOBAL CONTROLS */}
+      <div className="global-controls">
+        <button
+          className={isLocalOnly ? 'active' : ''}
+          onClick={() => setLocalOnly(!isLocalOnly)}
+        >
+          {isLocalOnly ? 'Local' : 'Shared'}
+        </button>
+        <button onClick={() => setPaused(!isPaused)}>
+          {isPaused ? 'Resume' : 'Pause'}
+        </button>
+        <button onClick={stopAll}>Stop</button>
+        <label className="volume">
+          Vol
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={globalVolume}
+            onChange={(e) => setGlobalVolume(Number(e.target.value))}
+          />
+        </label>
+        <button onClick={() => setMuted(!isMuted)}>
+          {isMuted ? 'Unmute' : 'Mute'}
+        </button>
+      </div>
+
+      {/* ========== HOME: FOLDERS GRID ========== */}
+      {view === 'home' && (
+        <div className="grid">
+          {folders.map((folder) => (
+            <div
+              key={folder.id}
+              className="tile folder-tile"
+              style={{ borderColor: folder.color || '#4CAF50' }}
+              onClick={() => openFolder(folder.id)}
+            >
+              <div className="tile-emoji">{folder.emoji || '📁'}</div>
+              <div className="tile-name">{folder.name}</div>
+              <div className="tile-meta">{folder.streams.length} streams</div>
+            </div>
+          ))}
+
+          <div
+            className="tile add-tile"
+            onClick={() => addFolder()}
+          >
+            <div className="tile-emoji">＋</div>
+            <div className="tile-name">New Folder</div>
+          </div>
+
+          {folders.length === 0 && (
+            <div className="empty-hint">No folders yet. Create one.</div>
+          )}
+        </div>
+      )}
+
+      {/* ========== FOLDER: STREAMS GRID ========== */}
+      {view === 'folder' && activeFolder && (
+        <div className="folder-screen">
+          <div className="folder-toolbar">
+            <input
+              className="inline-input"
+              value={activeFolder.name}
+              onChange={(e) =>
+                updateFolder(activeFolder.id, { name: e.target.value })
+              }
+              placeholder="Folder name"
+            />
+            <input
+              className="emoji-input"
+              value={activeFolder.emoji || '📁'}
+              maxLength={2}
+              onChange={(e) =>
+                updateFolder(activeFolder.id, { emoji: e.target.value })
+              }
+              title="Emoji"
+            />
+            <input
+              type="color"
+              value={activeFolder.color || '#4CAF50'}
+              onChange={(e) =>
+                updateFolder(activeFolder.id, { color: e.target.value })
+              }
+            />
+            <button
+              className="danger"
+              onClick={() => {
+                if (window.confirm(`Delete folder "${activeFolder.name}"?`)) {
+                  deleteFolder(activeFolder.id)
+                  setView('home')
+                  setActiveFolderId(null)
+                }
+              }}
+            >
+              Delete
+            </button>
+          </div>
+
+          <div className="grid">
+            {activeFolder.streams.map((stream) => {
+              const isPlaying = !!playingStreams[stream.id]
+              return (
+                <div
+                  key={stream.id}
+                  className={`tile stream-tile ${isPlaying ? 'playing' : ''}`}
+                >
+                  <div
+                    className="tile-main"
+                    onClick={() => toggleStream(stream.id)}
+                  >
+                    <div className="tile-emoji">{isPlaying ? '🔊' : '🎵'}</div>
+                    <div className="tile-name">{stream.name}</div>
+                    <div className="tile-meta">
+                      {stream.links.length} link
+                      {stream.links.length === 1 ? '' : 's'}
+                    </div>
+                  </div>
+                  <button
+                    className="tile-settings"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openStream(stream.id)
+                    }}
+                  >
+                    ⚙
+                  </button>
+                </div>
+              )
+            })}
+
+            <div
+              className="tile add-tile"
+              onClick={() => addStream(activeFolder.id)}
+            >
+              <div className="tile-emoji">＋</div>
+              <div className="tile-name">New Stream</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========== STREAM SETTINGS ========== */}
+      {view === 'stream' && activeFolder && activeStream && (
+        <div className="stream-screen">
+          <div className="settings-block">
+            <label>
+              Name
+              <input
+                value={activeStream.name}
+                onChange={(e) =>
+                  updateStream(activeFolder.id, activeStream.id, {
+                    name: e.target.value,
+                  })
+                }
+              />
+            </label>
+
+            <label>
+              Stream volume
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={activeStream.volume}
+                onChange={(e) =>
+                  updateStream(activeFolder.id, activeStream.id, {
+                    volume: Number(e.target.value),
+                  })
+                }
+              />
+            </label>
+
+            <div className="two-columns">
+              <label>
+                Fade In (sec)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={activeStream.fadeIn}
+                  onChange={(e) =>
+                    updateStream(activeFolder.id, activeStream.id, {
+                      fadeIn: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Fade Out (sec)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={activeStream.fadeOut}
+                  onChange={(e) =>
+                    updateStream(activeFolder.id, activeStream.id, {
+                      fadeOut: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+            </div>
+
+            <button
+              className="danger"
+              onClick={() => {
+                if (window.confirm(`Delete stream "${activeStream.name}"?`)) {
+                  deleteStream(activeFolder.id, activeStream.id)
+                  setView('folder')
+                  setActiveStreamId(null)
+                }
+              }}
+            >
+              Delete Stream
+            </button>
+          </div>
+
+          <div className="settings-block">
+            <div className="links-header">
+              <strong>Sources (YouTube)</strong>
+              <button onClick={() => addLink(activeFolder.id, activeStream.id)}>
+                + Link
+              </button>
+            </div>
+
+            {activeStream.links.map((link, index) => (
+              <div key={link.id} className="link-card">
+                <div className="link-top">
+                  <span>#{index + 1}</span>
+                  <button
+                    className="danger-text"
+                    onClick={() =>
+                      deleteLink(activeFolder.id, activeStream.id, link.id)
+                    }
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <input
+                  className="url-input"
+                  placeholder="https://youtube.com/watch?v=..."
+                  value={link.url}
+                  onChange={(e) =>
+                    updateLink(activeFolder.id, activeStream.id, link.id, {
+                      url: e.target.value,
+                    })
+                  }
+                />
+
+                <label>
+                  Source volume
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={link.volume ?? 1}
+                    onChange={(e) =>
+                      updateLink(activeFolder.id, activeStream.id, link.id, {
+                        volume: Number(e.target.value),
+                      })
+                    }
+                  />
+                </label>
+
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={!!link.loop}
+                    onChange={(e) =>
+                      updateLink(activeFolder.id, activeStream.id, link.id, {
+                        loop: e.target.checked,
+                      })
+                    }
+                  />
+                  Loop
+                </label>
+              </div>
+            ))}
+
+            {activeStream.links.length === 0 && (
+              <div className="empty-hint">No sources. Add a YouTube link.</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <Player />
     </div>
   )
 }
