@@ -20,7 +20,6 @@ const STREAM_EMOJIS = [
 function App() {
   const [ready, setReady] = useState(false)
   const [role, setRole] = useState(null)
-
   const [view, setView] = useState('home')
   const [activeFolderId, setActiveFolderId] = useState(null)
   const [activeStreamId, setActiveStreamId] = useState(null)
@@ -32,6 +31,7 @@ function App() {
     isLocalOnly,
     globalVolume,
     isMuted,
+    syncedActiveStreams,
     toggleStream,
     stopAll,
     setPaused,
@@ -48,6 +48,7 @@ function App() {
     updateLink,
     deleteLink,
     applyRemoteState,
+    getActiveStreamsPayload,
     exportData,
     importData,
   } = useStore()
@@ -72,14 +73,17 @@ function App() {
     if (role !== 'GM') return
     if (isLocalOnly) return
 
+    const activeStreams = getActiveStreamsPayload()
+
     OBR.room.setMetadata({
       warpsong: {
         playingStreams,
         isPaused,
         isLocalOnly,
+        activeStreams,
       },
     })
-  }, [playingStreams, isPaused, isLocalOnly, role])
+  }, [playingStreams, isPaused, isLocalOnly, folders, role])
 
   const handleSave = () => {
     const data = exportData()
@@ -152,6 +156,22 @@ function App() {
         </div>
         <div className="player-view">
           <p>GM is controlling the music</p>
+
+          {syncedActiveStreams?.length > 0 ? (
+            <div className="now-playing">
+              <strong>Now playing:</strong>
+              <ul>
+                {syncedActiveStreams.map((s) => (
+                  <li key={s.id}>
+                    {s.emoji || '🎵'} {s.name}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="empty-hint">Nothing playing</p>
+          )}
+
           <label className="control-row">
             Volume
             <input
@@ -166,6 +186,9 @@ function App() {
           <button onClick={() => setMuted(!isMuted)}>
             {isMuted ? 'Unmute' : 'Mute'}
           </button>
+          <p style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>
+            Click Volume or Mute once if you hear nothing (Chrome autoplay)
+          </p>
         </div>
         <Player />
       </div>
@@ -232,7 +255,6 @@ function App() {
         </button>
       </div>
 
-      {/* HOME */}
       {view === 'home' && (
         <div className="grid">
           {folders.map((folder) => (
@@ -247,19 +269,16 @@ function App() {
               <div className="tile-meta">{folder.streams.length} streams</div>
             </div>
           ))}
-
           <div className="tile add-tile" onClick={() => addFolder()}>
             <div className="tile-emoji">＋</div>
             <div className="tile-name">New Folder</div>
           </div>
-
           {folders.length === 0 && (
             <div className="empty-hint">No folders yet. Create one.</div>
           )}
         </div>
       )}
 
-      {/* FOLDER */}
       {view === 'folder' && activeFolder && (
         <div className="folder-screen">
           <div className="folder-toolbar">
@@ -334,7 +353,6 @@ function App() {
                 </div>
               )
             })}
-
             <div
               className="tile add-tile"
               onClick={() => addStream(activeFolder.id)}
@@ -346,7 +364,6 @@ function App() {
         </div>
       )}
 
-      {/* STREAM SETTINGS */}
       {view === 'stream' && activeFolder && activeStream && (
         <div className="stream-screen">
           <div className="settings-block">
