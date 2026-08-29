@@ -35,6 +35,7 @@ const useStore = create((set, get) => ({
   isLocalOnly: false,
   globalVolume: 0.8,
   isMuted: false,
+  syncedActiveStreams: [],
 
   // ---------- FOLDERS ----------
   addFolder: () =>
@@ -228,13 +229,40 @@ const useStore = create((set, get) => ({
   setGlobalVolume: (value) => set({ globalVolume: value }),
   setMuted: (value) => set({ isMuted: value }),
 
-  // ---------- SYNC FROM METADATA ----------
+  // ---------- SYNC ----------
+  getActiveStreamsPayload: () => {
+    const state = get()
+    const result = []
+    state.folders.forEach((folder) => {
+      folder.streams.forEach((stream) => {
+        if (state.playingStreams[stream.id]) {
+          result.push({
+            id: stream.id,
+            name: stream.name,
+            emoji: stream.emoji || '🎵',
+            volume: stream.volume ?? 0.7,
+            links: (stream.links || [])
+              .filter((l) => l.url)
+              .map((l) => ({
+                id: l.id,
+                url: l.url,
+                volume: l.volume ?? 1,
+                loop: !!l.loop,
+              })),
+          })
+        }
+      })
+    })
+    return result
+  },
+
   applyRemoteState: (data) => {
     if (!data) return
     set({
       playingStreams: data.playingStreams || {},
       isPaused: !!data.isPaused,
       isLocalOnly: !!data.isLocalOnly,
+      syncedActiveStreams: data.activeStreams || [],
     })
   },
 
@@ -253,6 +281,7 @@ const useStore = create((set, get) => ({
       folders: data.folders,
       playingStreams: {},
       isPaused: false,
+      syncedActiveStreams: [],
     })
   },
 }))
