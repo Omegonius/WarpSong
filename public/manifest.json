@@ -7,7 +7,7 @@
   "icon": "/icon.svg",
   "action": {
     "title": "WarpSong",
-    "icon": "/icon.svg"
+    "icon": "/logo.png"
     "popover": "/",
     "height": 420,
     "width": 600
