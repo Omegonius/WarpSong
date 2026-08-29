@@ -258,11 +258,26 @@ const useStore = create((set, get) => ({
 
   applyRemoteState: (data) => {
     if (!data) return
-    set({
-      playingStreams: data.playingStreams || {},
-      isPaused: !!data.isPaused,
-      isLocalOnly: !!data.isLocalOnly,
-      syncedActiveStreams: data.activeStreams || [],
+
+    set((state) => {
+      const nextPlaying = data.playingStreams || {}
+      const nextPaused = !!data.isPaused
+      const nextLocal = !!data.isLocalOnly
+      const nextActive = data.activeStreams || []
+
+      // якщо ті самі стріми (ті ж id у тому ж порядку) — не чіпаємо syncedActiveStreams,
+      // щоб ReactPlayer не рестартив уже граючі треки
+      const prev = state.syncedActiveStreams || []
+      const same =
+        prev.length === nextActive.length &&
+        prev.every((s, i) => s.id === nextActive[i]?.id)
+
+      return {
+        playingStreams: nextPlaying,
+        isPaused: nextPaused,
+        isLocalOnly: nextLocal,
+        syncedActiveStreams: same ? prev : nextActive,
+      }
     })
   },
 
