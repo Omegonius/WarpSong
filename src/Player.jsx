@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect } from 'react'
+import { useMemo, useRef, useEffect, useState } from 'react'
 import ReactPlayer from 'react-player/youtube'
 import useStore from './store'
 
@@ -12,32 +12,41 @@ export default function Player() {
     isMuted,
   } = useStore()
 
-  // 1) Спочатку локальні (GM) — миттєво, без metadata
-  // 2) Якщо локально нічого не грає — беремо sync від GM (гравці)
+  // Локально (GM) має пріоритет — без чекання metadata
   const activeStreams = useMemo(() => {
     const local = []
     folders.forEach((folder) => {
       folder.streams.forEach((stream) => {
-        if (playingStreams[stream.id]) {
-          local.push(stream)
-        }
+        if (playingStreams[stream.id]) local.push(stream)
       })
     })
     if (local.length > 0) return local
     return syncedActiveStreams || []
   }, [folders, playingStreams, syncedActiveStreams])
 
+  // Стабільний список слотів: key = streamId + linkId (НЕ url)
+  // session зростає тільки коли слот ЗНОВУ з’являється після вимкнення
+  const sessionsRef = useRef({}) // key -> session number
+  const prevKeysRef = useRef(new Set())
+
   const tracks = useMemo(() => {
     const list = []
-    const seen = new Set()
+    const currentKeys = new Set()
+
     activeStreams.forEach((stream) => {
       ;(stream.links || []).forEach((link) => {
         if (!link.url || !/youtu/i.test(link.url)) return
-        // один плеєр на унікальний url — не дублюємо
-        if (seen.has(link.url)) return
-        seen.add(link.url)
+        const key = `${stream.id}::${link.id}`
+        currentKeys.add(key)
+
+        // якщо слот новий (не грав минулого разу) — нова session
+        if (!prevKeysRef.current.has(key)) {
+          sessionsRef.current[key] = (sessionsRef.current[key] || 0) + 1
+        }
+
         list.push({
-          key: link.url,
+          key,
+          session: sessionsRef.current[key] || 1,
           url: link.url,
           streamVolume: stream.volume ?? 0.7,
           linkVolume: link.volume ?? 1,
@@ -45,78 +54,92 @@ export default function Player() {
         })
       })
     })
+
+    // прибрати session для тих, кого вже немає
+    Object.keys(sessionsRef.current).forEach((k) => {
+      if (!currentKeys.has(k)) {
+        // лишаємо номер session, щоб при повторному старті був новий mount
+      }
+    })
+
+    prevKeysRef.current = currentKeys
     return list
   }, [activeStreams])
 
-  // щоб 2 стріми не здавались тихішими — легкий буст при кількох треках
-  const trackCount = tracks.length
-  const multiBoost = trackCount >= 2 ? 1.15 : 1
-  const baseVolume = isMuted || isPaused ? 0 : Math.min(1, globalVolume * multiBoost)
+  const muted = isMuted || isPaused
+  // БЕЗ multiBoost — однакова база для всіх, гучність тільки з налаштувань стріму
+  const base = muted ? 0 : globalVolume
 
   return (
     <div style={{ display: 'none' }}>
       {tracks.map((track) => (
         <StableYouTube
-          key={track.key}
+          key={`${track.key}::${track.session}`}
           url={track.url}
-          playing={!isPaused && !isMuted}
-          volume={Math.min(1, baseVolume * track.streamVolume * track.linkVolume)}
+          playing={!muted}
+          volume={clamp01(base * track.streamVolume * track.linkVolume)}
           loop={track.loop}
-          muted={isMuted || isPaused}
         />
       ))}
     </div>
   )
 }
 
-function StableYouTube({ url, playing, volume, loop, muted }) {
-  const playerRef = useRef(null)
-  const startedRef = useRef(false)
+function clamp01(n) {
+  return Math.max(0, Math.min(1, n))
+}
 
-  // volume через YouTube API, без remount
+function StableYouTube({ url, playing, volume, loop }) {
+  const ref = useRef(null)
+  const [ready, setReady] = useState(false)
+
+  // Тільки volume — НІКОЛИ не чіпаємо play через зміну volume
   useEffect(() => {
-    const internal = playerRef.current?.getInternalPlayer?.()
-    if (!internal || typeof internal.setVolume !== 'function') return
+    if (!ready) return
+    const yt = ref.current?.getInternalPlayer?.()
+    if (!yt || typeof yt.setVolume !== 'function') return
     try {
-      internal.setVolume(Math.round(Math.max(0, Math.min(1, volume)) * 100))
+      yt.setVolume(Math.round(clamp01(volume) * 100))
+      if (volume <= 0 && typeof yt.mute === 'function') yt.mute()
+      if (volume > 0 && typeof yt.unMute === 'function') yt.unMute()
     } catch {
       // ignore
     }
-  }, [volume])
+  }, [volume, ready])
 
-  // play/pause через API
+  // Play / pause окремо
   useEffect(() => {
-    const internal = playerRef.current?.getInternalPlayer?.()
-    if (!internal) return
+    if (!ready) return
+    const yt = ref.current?.getInternalPlayer?.()
+    if (!yt) return
     try {
-      if (playing && !muted) {
-        if (typeof internal.unMute === 'function') internal.unMute()
-        if (typeof internal.playVideo === 'function') internal.playVideo()
-        startedRef.current = true
+      if (playing) {
+        yt.unMute?.()
+        yt.playVideo?.()
       } else {
-        if (typeof internal.pauseVideo === 'function') internal.pauseVideo()
+        yt.pauseVideo?.()
       }
     } catch {
       // ignore
     }
-  }, [playing, muted])
+  }, [playing, ready])
 
   return (
     <ReactPlayer
-      ref={playerRef}
+      ref={ref}
       url={url}
       playing={playing}
-      volume={volume}
-      muted={muted}
+      volume={clamp01(volume)}
+      muted={volume <= 0}
       loop={loop}
       width={0}
       height={0}
       onReady={() => {
-        // після ready ще раз форсуємо play (Chrome autoplay)
-        if (!playing || muted) return
-        const internal = playerRef.current?.getInternalPlayer?.()
+        setReady(true)
+        const yt = ref.current?.getInternalPlayer?.()
         try {
-          internal?.playVideo?.()
+          yt?.setVolume?.(Math.round(clamp01(volume) * 100))
+          if (playing) yt?.playVideo?.()
         } catch {
           // ignore
         }
