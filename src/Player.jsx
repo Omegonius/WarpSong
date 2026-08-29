@@ -11,8 +11,6 @@ export default function Player() {
     isMuted,
   } = useStore()
 
-  // Спочатку беремо те, що прислав GM (для гравців).
-  // Якщо порожньо — будуємо з локальних folders (для GM).
   let activeStreams = syncedActiveStreams || []
 
   if (!activeStreams.length) {
