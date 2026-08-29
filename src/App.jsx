@@ -60,12 +60,16 @@ function App() {
       setRole(playerRole)
 
       OBR.room.onMetadataChange((metadata) => {
+        // GM не застосовує свій же sync — інакше рестарт і затримка
+        if (playerRole === 'GM') return
         const data = metadata['warpsong']
         if (data) applyRemoteState(data)
       })
 
-      const current = await OBR.room.getMetadata()
-      if (current['warpsong']) applyRemoteState(current['warpsong'])
+      if (playerRole !== 'GM') {
+        const current = await OBR.room.getMetadata()
+        if (current['warpsong']) applyRemoteState(current['warpsong'])
+      }
     })
   }, [])
 
