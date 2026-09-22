@@ -15,11 +15,13 @@ const STREAM_EMOJIS = [
   '🐉', '🐺', '🦇', '🕷️',
   '🎵', '🎶', '🥁', '🎻',
   '🏙️', '🚢', '🚂', '✈️',
+  '👁️', '🌀', '✨', '🔮',
 ]
 
 function App() {
   const [ready, setReady] = useState(false)
   const [role, setRole] = useState(null)
+  // home | folder | folder-visual | stream | stream-visual
   const [view, setView] = useState('home')
   const [activeFolderId, setActiveFolderId] = useState(null)
   const [activeStreamId, setActiveStreamId] = useState(null)
@@ -60,7 +62,6 @@ function App() {
       setRole(playerRole)
 
       OBR.room.onMetadataChange((metadata) => {
-        // GM не застосовує свій же sync — інакше рестарт і затримка
         if (playerRole === 'GM') return
         const data = metadata['warpsong']
         if (data) applyRemoteState(data)
@@ -131,14 +132,23 @@ function App() {
     setView('folder')
   }
 
+  const openFolderVisual = () => setView('folder-visual')
+
   const openStream = (streamId) => {
     setActiveStreamId(streamId)
     setView('stream')
   }
 
+  const openStreamVisual = (streamId) => {
+    setActiveStreamId(streamId)
+    setView('stream-visual')
+  }
+
   const goBack = () => {
-    if (view === 'stream') {
+    if (view === 'stream' || view === 'stream-visual') {
       setActiveStreamId(null)
+      setView('folder')
+    } else if (view === 'folder-visual') {
       setView('folder')
     } else if (view === 'folder') {
       setActiveFolderId(null)
@@ -147,23 +157,23 @@ function App() {
   }
 
   if (!ready) {
-    return <div className="loading">Loading WarpSong...</div>
+    return <div className="loading">Loading WarpSong…</div>
   }
 
-  // ---------- PLAYER VIEW ----------
   if (role === 'PLAYER') {
     return (
       <div className="app">
         <div className="topbar">
-          <h2>WarpSong</h2>
-          <span className="subtitle">Player</span>
+          <div>
+            <h2>WarpSong</h2>
+            <span className="subtitle">Player</span>
+          </div>
         </div>
         <div className="player-view">
-          <p>GM is controlling the music</p>
-
+          <p className="player-hint">The Changer weaves the score…</p>
           {syncedActiveStreams?.length > 0 ? (
             <div className="now-playing">
-              <strong>Now playing:</strong>
+              <strong>Now playing</strong>
               <ul>
                 {syncedActiveStreams.map((s) => (
                   <li key={s.id}>
@@ -173,9 +183,8 @@ function App() {
               </ul>
             </div>
           ) : (
-            <p className="empty-hint">Nothing playing</p>
+            <p className="empty-hint">Silence in the warp</p>
           )}
-
           <label className="control-row">
             Volume
             <input
@@ -190,8 +199,8 @@ function App() {
           <button onClick={() => setMuted(!isMuted)}>
             {isMuted ? 'Unmute' : 'Mute'}
           </button>
-          <p style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>
-            Click Volume or Mute once if you hear nothing (Chrome autoplay)
+          <p className="autoplay-hint">
+            Tap Volume or Mute once if you hear nothing (Chrome autoplay)
           </p>
         </div>
         <Player />
@@ -199,7 +208,6 @@ function App() {
     )
   }
 
-  // ---------- GM VIEW ----------
   return (
     <div className="app">
       <div className="topbar">
@@ -212,13 +220,18 @@ function App() {
           <div>
             <h2>
               {view === 'home' && 'WarpSong'}
-              {view === 'folder' && (activeFolder?.name || 'Folder')}
-              {view === 'stream' && (activeStream?.name || 'Stream')}
+              {(view === 'folder' || view === 'folder-visual') &&
+                (activeFolder?.name || 'Folder')}
+              {(view === 'stream' || view === 'stream-visual') &&
+                (activeStream?.name || 'Stream')}
             </h2>
             <span className="subtitle">
               {view === 'home' && 'Folders'}
-              {view === 'folder' && `${activeFolder?.streams.length || 0} streams`}
-              {view === 'stream' && 'Settings'}
+              {view === 'folder' &&
+                `${activeFolder?.streams.length || 0} streams`}
+              {view === 'folder-visual' && 'Folder look'}
+              {view === 'stream' && 'Sound & sources'}
+              {view === 'stream-visual' && 'Stream look'}
             </span>
           </div>
         </div>
@@ -259,20 +272,48 @@ function App() {
         </button>
       </div>
 
+      {/* HOME */}
       {view === 'home' && (
         <div className="grid">
-          {folders.map((folder) => (
-            <div
-              key={folder.id}
-              className="tile folder-tile"
-              style={{ borderColor: folder.color || '#4CAF50' }}
-              onClick={() => openFolder(folder.id)}
-            >
-              <div className="tile-emoji">{folder.emoji || '📁'}</div>
-              <div className="tile-name">{folder.name}</div>
-              <div className="tile-meta">{folder.streams.length} streams</div>
-            </div>
-          ))}
+          {folders.map((folder) => {
+            const folderPlaying = folder.streams.some(
+              (s) => !!playingStreams[s.id]
+            )
+            return (
+              <div
+                key={folder.id}
+                className={`tile folder-tile ${folderPlaying ? 'has-playing' : ''}`}
+                style={{ borderColor: folder.color || '#7B5CFF' }}
+              >
+                <div
+                  className="tile-main"
+                  onClick={() => openFolder(folder.id)}
+                >
+                  <div className="tile-emoji">{folder.emoji || '📁'}</div>
+                  <div className="tile-name">{folder.name}</div>
+                  <div className="tile-meta">
+                    {folder.streams.length} streams
+                  </div>
+                </div>
+                {folderPlaying && (
+                  <div className="tile-playing-badge" title="Playing">
+                    🔊
+                  </div>
+                )}
+                <button
+                  className="tile-settings"
+                  title="Folder look"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setActiveFolderId(folder.id)
+                    setView('folder-visual')
+                  }}
+                >
+                  ⚙
+                </button>
+              </div>
+            )
+          })}
           <div className="tile add-tile" onClick={() => addFolder()}>
             <div className="tile-emoji">＋</div>
             <div className="tile-name">New Folder</div>
@@ -283,6 +324,7 @@ function App() {
         </div>
       )}
 
+      {/* FOLDER */}
       {view === 'folder' && activeFolder && (
         <div className="folder-screen">
           <div className="folder-toolbar">
@@ -294,22 +336,9 @@ function App() {
               }
               placeholder="Folder name"
             />
-            <input
-              className="emoji-input"
-              value={activeFolder.emoji || '📁'}
-              maxLength={4}
-              onChange={(e) =>
-                updateFolder(activeFolder.id, { emoji: e.target.value })
-              }
-              title="Emoji"
-            />
-            <input
-              type="color"
-              value={activeFolder.color || '#4CAF50'}
-              onChange={(e) =>
-                updateFolder(activeFolder.id, { color: e.target.value })
-              }
-            />
+            <button type="button" onClick={openFolderVisual}>
+              Look
+            </button>
             <button
               className="danger"
               onClick={() => {
@@ -331,7 +360,21 @@ function App() {
                 <div
                   key={stream.id}
                   className={`tile stream-tile ${isPlaying ? 'playing' : ''}`}
+                  style={{
+                    borderColor:
+                      stream.color || (isPlaying ? '#C9A227' : '#3a2f6b'),
+                  }}
                 >
+                  <button
+                    className="tile-visual"
+                    title="Stream look"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openStreamVisual(stream.id)
+                    }}
+                  >
+                    🎨
+                  </button>
                   <div
                     className="tile-main"
                     onClick={() => toggleStream(stream.id)}
@@ -347,6 +390,7 @@ function App() {
                   </div>
                   <button
                     className="tile-settings"
+                    title="Sound & links"
                     onClick={(e) => {
                       e.stopPropagation()
                       openStream(stream.id)
@@ -368,6 +412,54 @@ function App() {
         </div>
       )}
 
+      {/* FOLDER VISUAL */}
+      {view === 'folder-visual' && activeFolder && (
+        <div className="stream-screen">
+          <div className="settings-block">
+            <label>
+              Emoji
+              <div className="emoji-picker-row">
+                <input
+                  className="emoji-input"
+                  value={activeFolder.emoji || '📁'}
+                  maxLength={4}
+                  onChange={(e) =>
+                    updateFolder(activeFolder.id, { emoji: e.target.value })
+                  }
+                />
+                <div className="emoji-presets">
+                  {STREAM_EMOJIS.map((em) => (
+                    <button
+                      key={em}
+                      type="button"
+                      className={`emoji-preset-btn ${
+                        activeFolder.emoji === em ? 'selected' : ''
+                      }`}
+                      onClick={() =>
+                        updateFolder(activeFolder.id, { emoji: em })
+                      }
+                    >
+                      {em}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </label>
+            <label>
+              Border color
+              <input
+                type="color"
+                value={activeFolder.color || '#7B5CFF'}
+                onChange={(e) =>
+                  updateFolder(activeFolder.id, { color: e.target.value })
+                }
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
+      {/* STREAM SOUND */}
       {view === 'stream' && activeFolder && activeStream && (
         <div className="stream-screen">
           <div className="settings-block">
@@ -382,42 +474,6 @@ function App() {
                 }
               />
             </label>
-
-            <label>
-              Emoji
-              <div className="emoji-picker-row">
-                <input
-                  className="emoji-input"
-                  value={activeStream.emoji || '🎵'}
-                  maxLength={4}
-                  onChange={(e) =>
-                    updateStream(activeFolder.id, activeStream.id, {
-                      emoji: e.target.value,
-                    })
-                  }
-                  title="Emoji"
-                />
-                <div className="emoji-presets">
-                  {STREAM_EMOJIS.map((em) => (
-                    <button
-                      key={em}
-                      type="button"
-                      className={`emoji-preset-btn ${
-                        activeStream.emoji === em ? 'selected' : ''
-                      }`}
-                      onClick={() =>
-                        updateStream(activeFolder.id, activeStream.id, {
-                          emoji: em,
-                        })
-                      }
-                    >
-                      {em}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </label>
-
             <label>
               Stream volume
               <input
@@ -433,7 +489,6 @@ function App() {
                 }
               />
             </label>
-
             <div className="two-columns">
               <label>
                 Fade In (sec)
@@ -464,7 +519,6 @@ function App() {
                 />
               </label>
             </div>
-
             <button
               className="danger"
               onClick={() => {
@@ -486,7 +540,6 @@ function App() {
                 + Link
               </button>
             </div>
-
             {activeStream.links.map((link, index) => (
               <div key={link.id} className="link-card">
                 <div className="link-top">
@@ -539,10 +592,62 @@ function App() {
                 </label>
               </div>
             ))}
-
             {activeStream.links.length === 0 && (
               <div className="empty-hint">No sources. Add a YouTube link.</div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* STREAM VISUAL */}
+      {view === 'stream-visual' && activeFolder && activeStream && (
+        <div className="stream-screen">
+          <div className="settings-block">
+            <label>
+              Emoji
+              <div className="emoji-picker-row">
+                <input
+                  className="emoji-input"
+                  value={activeStream.emoji || '🎵'}
+                  maxLength={4}
+                  onChange={(e) =>
+                    updateStream(activeFolder.id, activeStream.id, {
+                      emoji: e.target.value,
+                    })
+                  }
+                />
+                <div className="emoji-presets">
+                  {STREAM_EMOJIS.map((em) => (
+                    <button
+                      key={em}
+                      type="button"
+                      className={`emoji-preset-btn ${
+                        activeStream.emoji === em ? 'selected' : ''
+                      }`}
+                      onClick={() =>
+                        updateStream(activeFolder.id, activeStream.id, {
+                          emoji: em,
+                        })
+                      }
+                    >
+                      {em}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </label>
+            <label>
+              Border color
+              <input
+                type="color"
+                value={activeStream.color || '#5C7CFF'}
+                onChange={(e) =>
+                  updateStream(activeFolder.id, activeStream.id, {
+                    color: e.target.value,
+                  })
+                }
+              />
+            </label>
           </div>
         </div>
       )}
