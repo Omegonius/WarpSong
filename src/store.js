@@ -5,7 +5,7 @@ const useStore = create((set, get) => ({
     {
       id: 'folder-1',
       name: 'Ambience',
-      color: '#4CAF50',
+      color: '#7B5CFF',
       emoji: '🌲',
       collapsed: false,
       streams: [
@@ -13,6 +13,7 @@ const useStore = create((set, get) => ({
           id: 'stream-1',
           name: 'Forest',
           emoji: '🌲',
+          color: '#5C7CFF',
           volume: 0.7,
           fadeOut: 3,
           fadeIn: 0,
@@ -37,7 +38,6 @@ const useStore = create((set, get) => ({
   isMuted: false,
   syncedActiveStreams: [],
 
-  // ---------- FOLDERS ----------
   addFolder: () =>
     set((state) => ({
       folders: [
@@ -45,7 +45,7 @@ const useStore = create((set, get) => ({
         {
           id: `folder-${Date.now()}`,
           name: 'New Folder',
-          color: '#4CAF50',
+          color: '#7B5CFF',
           emoji: '📁',
           collapsed: false,
           streams: [],
@@ -82,7 +82,6 @@ const useStore = create((set, get) => ({
       ),
     })),
 
-  // ---------- STREAMS ----------
   addStream: (folderId) =>
     set((state) => ({
       folders: state.folders.map((folder) =>
@@ -95,6 +94,7 @@ const useStore = create((set, get) => ({
                   id: `stream-${Date.now()}`,
                   name: 'New Stream',
                   emoji: '🎵',
+                  color: '#5C7CFF',
                   volume: 0.7,
                   fadeOut: 3,
                   fadeIn: 0,
@@ -139,7 +139,6 @@ const useStore = create((set, get) => ({
       }
     }),
 
-  // ---------- LINKS ----------
   addLink: (folderId, streamId) =>
     set((state) => ({
       folders: state.folders.map((folder) =>
@@ -208,7 +207,6 @@ const useStore = create((set, get) => ({
       ),
     })),
 
-  // ---------- PLAYBACK STATE ----------
   toggleStream: (streamId) =>
     set((state) => ({
       playingStreams: {
@@ -229,7 +227,6 @@ const useStore = create((set, get) => ({
   setGlobalVolume: (value) => set({ globalVolume: value }),
   setMuted: (value) => set({ isMuted: value }),
 
-  // ---------- SYNC ----------
   getActiveStreamsPayload: () => {
     const state = get()
     const result = []
@@ -258,20 +255,15 @@ const useStore = create((set, get) => ({
 
   applyRemoteState: (data) => {
     if (!data) return
-
     set((state) => {
       const nextPlaying = data.playingStreams || {}
       const nextPaused = !!data.isPaused
       const nextLocal = !!data.isLocalOnly
       const nextActive = data.activeStreams || []
-
-      // якщо ті самі стріми (ті ж id у тому ж порядку) — не чіпаємо syncedActiveStreams,
-      // щоб ReactPlayer не рестартив уже граючі треки
       const prev = state.syncedActiveStreams || []
       const same =
         prev.length === nextActive.length &&
         prev.every((s, i) => s.id === nextActive[i]?.id)
-
       return {
         playingStreams: nextPlaying,
         isPaused: nextPaused,
@@ -281,7 +273,6 @@ const useStore = create((set, get) => ({
     })
   },
 
-  // ---------- SAVE / LOAD ----------
   exportData: () => {
     const state = get()
     return {
