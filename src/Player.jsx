@@ -2,6 +2,10 @@ import { useMemo, useRef, useEffect, useState } from 'react'
 import ReactPlayer from 'react-player/youtube'
 import useStore from './store'
 
+function clamp01(n) {
+  return Math.max(0, Math.min(1, Number(n) || 0))
+}
+
 export default function Player() {
   const folders = useStore((s) => s.folders)
   const playingStreams = useStore((s) => s.playingStreams)
@@ -9,7 +13,8 @@ export default function Player() {
   const isPaused = useStore((s) => s.isPaused)
   const isMuted = useStore((s) => s.isMuted)
 
-  const activeStreams = useMemo(() => {
+  // Поточні «мають грати» стріми
+  const desiredStreams = useMemo(() => {
     const local = []
     folders.forEach((folder) => {
       folder.streams.forEach((stream) => {
@@ -20,69 +25,89 @@ export default function Player() {
     return syncedActiveStreams || []
   }, [folders, playingStreams, syncedActiveStreams])
 
-  const sessionsRef = useRef({})
-  const prevKeysRef = useRef(new Set())
+  // Пул слотів: key -> { streamId, linkId, url, loop }
+  // Слот НЕ видаляється одразу при stop — лише playing=false
+  const poolRef = useRef(new Map())
+  const [, bump] = useState(0)
+  const force = () => bump((n) => n + 1)
 
-  const tracks = useMemo(() => {
-    const list = []
-    const currentKeys = new Set()
+  // Оновлюємо пул: додаємо нові, старі лишаємо
+  useEffect(() => {
+    const desiredKeys = new Set()
 
-    activeStreams.forEach((stream) => {
+    desiredStreams.forEach((stream) => {
       ;(stream.links || []).forEach((link) => {
         if (!link.url || !/youtu/i.test(link.url)) return
         const key = `${stream.id}::${link.id}`
-        currentKeys.add(key)
-
-        if (!prevKeysRef.current.has(key)) {
-          sessionsRef.current[key] = (sessionsRef.current[key] || 0) + 1
-        }
-
-        list.push({
+        desiredKeys.add(key)
+        const prev = poolRef.current.get(key)
+        poolRef.current.set(key, {
           key,
-          session: sessionsRef.current[key] || 1,
           streamId: stream.id,
           linkId: link.id,
           url: link.url,
           loop: link.loop !== false,
+          // active = зараз має грати
+          active: true,
         })
+        // якщо url змінився — оновлюємо
+        if (prev && prev.url !== link.url) {
+          poolRef.current.set(key, {
+            ...poolRef.current.get(key),
+            url: link.url,
+          })
+        }
       })
     })
 
-    prevKeysRef.current = currentKeys
-    return list
-  }, [activeStreams])
+    // хто зник з desired — не active, але лишається в пулі
+    poolRef.current.forEach((slot, key) => {
+      if (!desiredKeys.has(key)) {
+        poolRef.current.set(key, { ...slot, active: false })
+      }
+    })
 
-  const muted = isMuted || isPaused
+    force()
+  }, [desiredStreams])
+
+  // Stop all / порожній playing — чистимо пул із затримкою,
+  // щоб YouTube встиг pause перед unmount
+  const anyPlaying = desiredStreams.length > 0
+  useEffect(() => {
+    if (anyPlaying) return
+    const t = setTimeout(() => {
+      poolRef.current.clear()
+      force()
+    }, 400)
+    return () => clearTimeout(t)
+  }, [anyPlaying])
+
+  const slots = Array.from(poolRef.current.values())
+  const globalMuted = isMuted || isPaused
 
   return (
     <div style={{ display: 'none' }}>
-      {tracks.map((track) => (
+      {slots.map((slot) => (
         <StableYouTube
-          key={`${track.key}::${track.session}`}
-          streamId={track.streamId}
-          linkId={track.linkId}
-          url={track.url}
-          playing={!muted}
-          loop={track.loop}
+          key={slot.key}
+          streamId={slot.streamId}
+          linkId={slot.linkId}
+          url={slot.url}
+          playing={!!slot.active && !globalMuted}
+          loop={slot.loop}
         />
       ))}
     </div>
   )
 }
 
-function clamp01(n) {
-  return Math.max(0, Math.min(1, Number(n) || 0))
-}
-
 function StableYouTube({ streamId, linkId, url, playing, loop }) {
   const ref = useRef(null)
   const [ready, setReady] = useState(false)
 
-  // Жива гучність зі store — реагує на слайдери без рестарту
   const volume = useStore((s) => {
     const global = s.isMuted || s.isPaused ? 0 : s.globalVolume
 
-    // 1) локальні folders (GM)
     for (const folder of s.folders) {
       const stream = folder.streams.find((st) => st.id === streamId)
       if (stream) {
@@ -93,7 +118,6 @@ function StableYouTube({ streamId, linkId, url, playing, loop }) {
       }
     }
 
-    // 2) sync від GM (гравці)
     const remote = (s.syncedActiveStreams || []).find((st) => st.id === streamId)
     if (remote) {
       const link = (remote.links || []).find((l) => l.id === linkId)
@@ -147,7 +171,7 @@ function StableYouTube({ streamId, linkId, url, playing, loop }) {
       url={url}
       playing={playing}
       volume={volume}
-      muted={volume <= 0}
+      muted={volume <= 0 || !playing}
       loop={loop}
       width={0}
       height={0}
@@ -164,8 +188,7 @@ function StableYouTube({ streamId, linkId, url, playing, loop }) {
         }
       }}
       onProgress={() => {
-        // підстрахування: інколи YT скидає volume
-        applyVolume()
+        if (playing) applyVolume()
       }}
       config={{
         youtube: {
