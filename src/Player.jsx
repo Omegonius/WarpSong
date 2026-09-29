@@ -11,9 +11,9 @@ export default function Player() {
   const playingStreams = useStore((s) => s.playingStreams)
   const syncedActiveStreams = useStore((s) => s.syncedActiveStreams)
   const isPaused = useStore((s) => s.isPaused)
-  const isMuted = useStore((s) => s.isMuted)
+  const gmMuted = useStore((s) => s.gmMuted)
+  const localMuted = useStore((s) => s.localMuted)
 
-  // Поточні «мають грати» стріми
   const desiredStreams = useMemo(() => {
     const local = []
     folders.forEach((folder) => {
@@ -25,13 +25,10 @@ export default function Player() {
     return syncedActiveStreams || []
   }, [folders, playingStreams, syncedActiveStreams])
 
-  // Пул слотів: key -> { streamId, linkId, url, loop }
-  // Слот НЕ видаляється одразу при stop — лише playing=false
   const poolRef = useRef(new Map())
   const [, bump] = useState(0)
   const force = () => bump((n) => n + 1)
 
-  // Оновлюємо пул: додаємо нові, старі лишаємо
   useEffect(() => {
     const desiredKeys = new Set()
 
@@ -40,27 +37,17 @@ export default function Player() {
         if (!link.url || !/youtu/i.test(link.url)) return
         const key = `${stream.id}::${link.id}`
         desiredKeys.add(key)
-        const prev = poolRef.current.get(key)
         poolRef.current.set(key, {
           key,
           streamId: stream.id,
           linkId: link.id,
           url: link.url,
           loop: link.loop !== false,
-          // active = зараз має грати
           active: true,
         })
-        // якщо url змінився — оновлюємо
-        if (prev && prev.url !== link.url) {
-          poolRef.current.set(key, {
-            ...poolRef.current.get(key),
-            url: link.url,
-          })
-        }
       })
     })
 
-    // хто зник з desired — не active, але лишається в пулі
     poolRef.current.forEach((slot, key) => {
       if (!desiredKeys.has(key)) {
         poolRef.current.set(key, { ...slot, active: false })
@@ -70,8 +57,6 @@ export default function Player() {
     force()
   }, [desiredStreams])
 
-  // Stop all / порожній playing — чистимо пул із затримкою,
-  // щоб YouTube встиг pause перед unmount
   const anyPlaying = desiredStreams.length > 0
   useEffect(() => {
     if (anyPlaying) return
@@ -83,17 +68,18 @@ export default function Player() {
   }, [anyPlaying])
 
   const slots = Array.from(poolRef.current.values())
-  const globalMuted = isMuted || isPaused
+  const silenced = isPaused || gmMuted || localMuted
 
   return (
     <div style={{ display: 'none' }}>
       {slots.map((slot) => (
         <StableYouTube
           key={slot.key}
+          trackKey={slot.key}
           streamId={slot.streamId}
           linkId={slot.linkId}
           url={slot.url}
-          playing={!!slot.active && !globalMuted}
+          playing={!!slot.active && !silenced}
           loop={slot.loop}
         />
       ))}
@@ -101,29 +87,28 @@ export default function Player() {
   )
 }
 
-function StableYouTube({ streamId, linkId, url, playing, loop }) {
+function StableYouTube({ trackKey, streamId, linkId, url, playing, loop }) {
   const ref = useRef(null)
   const [ready, setReady] = useState(false)
+  const setPlaybackError = useStore((s) => s.setPlaybackError)
+  const clearPlaybackError = useStore((s) => s.clearPlaybackError)
 
   const volume = useStore((s) => {
-    const global = s.isMuted || s.isPaused ? 0 : s.globalVolume
+    if (s.isPaused || s.gmMuted || s.localMuted) return 0
+    const global = s.globalVolume
 
     for (const folder of s.folders) {
       const stream = folder.streams.find((st) => st.id === streamId)
       if (stream) {
         const link = (stream.links || []).find((l) => l.id === linkId)
-        const sv = stream.volume ?? 0.7
-        const lv = link?.volume ?? 1
-        return clamp01(global * sv * lv)
+        return clamp01(global * (stream.volume ?? 0.7) * (link?.volume ?? 1))
       }
     }
 
     const remote = (s.syncedActiveStreams || []).find((st) => st.id === streamId)
     if (remote) {
       const link = (remote.links || []).find((l) => l.id === linkId)
-      const sv = remote.volume ?? 0.7
-      const lv = link?.volume ?? 1
-      return clamp01(global * sv * lv)
+      return clamp01(global * (remote.volume ?? 0.7) * (link?.volume ?? 1))
     }
 
     return clamp01(global * 0.7)
@@ -178,6 +163,7 @@ function StableYouTube({ streamId, linkId, url, playing, loop }) {
       progressInterval={500}
       onReady={() => {
         setReady(true)
+        clearPlaybackError(trackKey)
         applyVolume()
         if (playing) {
           try {
@@ -186,6 +172,12 @@ function StableYouTube({ streamId, linkId, url, playing, loop }) {
             // ignore
           }
         }
+      }}
+      onError={() => {
+        setPlaybackError(
+          trackKey,
+          `Cannot play: ${url || 'invalid link'} (private, blocked, or unavailable)`
+        )
       }}
       onProgress={() => {
         if (playing) applyVolume()
