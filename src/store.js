@@ -1,42 +1,92 @@
 import { create } from 'zustand'
 
+const defaultFolders = () => [
+  {
+    id: 'folder-1',
+    name: 'Ambience',
+    color: '#7B5CFF',
+    emoji: '🌲',
+    collapsed: false,
+    streams: [
+      {
+        id: 'stream-1',
+        name: 'Forest',
+        emoji: '🌲',
+        color: '#5C7CFF',
+        volume: 0.7,
+        fadeOut: 3,
+        fadeIn: 0,
+        links: [
+          {
+            id: 'link-1',
+            url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+            volume: 1,
+            loop: true,
+            delay: 0,
+          },
+        ],
+      },
+    ],
+  },
+]
+
+function clamp01(n) {
+  const x = Number(n)
+  if (Number.isNaN(x)) return 0
+  return Math.max(0, Math.min(1, x))
+}
+
+function sanitizeFolders(folders) {
+  if (!Array.isArray(folders)) return null
+  return folders.map((folder, fi) => ({
+    id: folder.id || `folder-${fi}-${Date.now()}`,
+    name: String(folder.name ?? 'Folder'),
+    color: folder.color || '#7B5CFF',
+    emoji: folder.emoji || '📁',
+    collapsed: !!folder.collapsed,
+    streams: Array.isArray(folder.streams)
+      ? folder.streams.map((stream, si) => ({
+          id: stream.id || `stream-${si}-${Date.now()}`,
+          name: String(stream.name ?? 'Stream'),
+          emoji: stream.emoji || '🎵',
+          color: stream.color || '#5C7CFF',
+          volume: clamp01(stream.volume ?? 0.7),
+          fadeIn: Math.max(0, Number(stream.fadeIn) || 0),
+          fadeOut: Math.max(0, Number(stream.fadeOut) || 0),
+          links: Array.isArray(stream.links)
+            ? stream.links.map((link, li) => ({
+                id: link.id || `link-${li}-${Date.now()}`,
+                url: String(link.url ?? ''),
+                volume: clamp01(link.volume ?? 1),
+                loop: link.loop !== false,
+                delay: Math.max(0, Number(link.delay) || 0),
+              }))
+            : [],
+        }))
+      : [],
+  }))
+}
+
+function normalizePlaying(raw) {
+  const out = {}
+  if (!raw || typeof raw !== 'object') return out
+  Object.keys(raw).forEach((id) => {
+    if (raw[id]) out[id] = true
+  })
+  return out
+}
+
 const useStore = create((set, get) => ({
-  folders: [
-    {
-      id: 'folder-1',
-      name: 'Ambience',
-      color: '#7B5CFF',
-      emoji: '🌲',
-      collapsed: false,
-      streams: [
-        {
-          id: 'stream-1',
-          name: 'Forest',
-          emoji: '🌲',
-          color: '#5C7CFF',
-          volume: 0.7,
-          fadeOut: 3,
-          fadeIn: 0,
-          links: [
-            {
-              id: 'link-1',
-              url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-              volume: 1,
-              loop: true,
-              delay: 0,
-            },
-          ],
-        },
-      ],
-    },
-  ],
+  folders: defaultFolders(),
 
   playingStreams: {},
   isPaused: false,
   isLocalOnly: false,
+  gmMuted: false,
+  localMuted: false,
   globalVolume: 0.8,
-  isMuted: false,
   syncedActiveStreams: [],
+  playbackErrors: {},
 
   addFolder: () =>
     set((state) => ({
@@ -72,15 +122,6 @@ const useStore = create((set, get) => ({
         playingStreams,
       }
     }),
-
-  toggleFolder: (folderId) =>
-    set((state) => ({
-      folders: state.folders.map((folder) =>
-        folder.id === folderId
-          ? { ...folder, collapsed: !folder.collapsed }
-          : folder
-      ),
-    })),
 
   addStream: (folderId) =>
     set((state) => ({
@@ -129,9 +170,7 @@ const useStore = create((set, get) => ({
           folder.id === folderId
             ? {
                 ...folder,
-                streams: folder.streams.filter(
-                  (stream) => stream.id !== streamId
-                ),
+                streams: folder.streams.filter((s) => s.id !== streamId),
               }
             : folder
         ),
@@ -198,7 +237,7 @@ const useStore = create((set, get) => ({
                 stream.id === streamId
                   ? {
                       ...stream,
-                      links: stream.links.filter((link) => link.id !== linkId),
+                      links: stream.links.filter((l) => l.id !== linkId),
                     }
                   : stream
               ),
@@ -208,24 +247,35 @@ const useStore = create((set, get) => ({
     })),
 
   toggleStream: (streamId) =>
-    set((state) => ({
-      playingStreams: {
-        ...state.playingStreams,
-        [streamId]: !state.playingStreams[streamId],
-      },
-      isPaused: false,
-    })),
-
-  stopAll: () =>
-    set({
-      playingStreams: {},
-      isPaused: false,
+    set((state) => {
+      const playingStreams = { ...state.playingStreams }
+      if (playingStreams[streamId]) delete playingStreams[streamId]
+      else playingStreams[streamId] = true
+      return { playingStreams, isPaused: false }
     }),
 
-  setPaused: (value) => set({ isPaused: value }),
-  setLocalOnly: (value) => set({ isLocalOnly: value }),
-  setGlobalVolume: (value) => set({ globalVolume: value }),
-  setMuted: (value) => set({ isMuted: value }),
+  stopAll: () => set({ playingStreams: {}, isPaused: false }),
+
+  setPaused: (value) => set({ isPaused: !!value }),
+  setLocalOnly: (value) => set({ isLocalOnly: !!value }),
+  setGmMuted: (value) => set({ gmMuted: !!value }),
+  setLocalMuted: (value) => set({ localMuted: !!value }),
+  setGlobalVolume: (value) => set({ globalVolume: clamp01(value) }),
+
+  setPlaybackError: (key, message) =>
+    set((state) => ({
+      playbackErrors: { ...state.playbackErrors, [key]: message },
+    })),
+
+  clearPlaybackError: (key) =>
+    set((state) => {
+      if (!state.playbackErrors[key]) return state
+      const playbackErrors = { ...state.playbackErrors }
+      delete playbackErrors[key]
+      return { playbackErrors }
+    }),
+
+  clearAllPlaybackErrors: () => set({ playbackErrors: {} }),
 
   getActiveStreamsPayload: () => {
     const state = get()
@@ -256,19 +306,47 @@ const useStore = create((set, get) => ({
   applyRemoteState: (data) => {
     if (!data) return
     set((state) => {
-      const nextPlaying = data.playingStreams || {}
+      const nextPlaying = normalizePlaying(data.playingStreams)
       const nextPaused = !!data.isPaused
-      const nextLocal = !!data.isLocalOnly
-      const nextActive = data.activeStreams || []
+      const nextGmMuted = !!data.gmMuted
+      const nextActive = Array.isArray(data.activeStreams)
+        ? data.activeStreams
+        : []
+
       const prev = state.syncedActiveStreams || []
-      const same =
+      let syncedActiveStreams = prev
+
+      const sameShape =
         prev.length === nextActive.length &&
         prev.every((s, i) => s.id === nextActive[i]?.id)
+
+      if (!sameShape) {
+        syncedActiveStreams = nextActive
+      } else {
+        const changed = nextActive.some((s, i) => {
+          const p = prev[i]
+          if ((p.volume ?? 0.7) !== (s.volume ?? 0.7)) return true
+          const pl = p.links || []
+          const nl = s.links || []
+          if (pl.length !== nl.length) return true
+          return nl.some((link, j) => {
+            const prevLink = pl[j]
+            return (
+              !prevLink ||
+              prevLink.url !== link.url ||
+              (prevLink.volume ?? 1) !== (link.volume ?? 1) ||
+              !!prevLink.loop !== !!link.loop
+            )
+          })
+        })
+        if (changed) syncedActiveStreams = nextActive
+      }
+
       return {
         playingStreams: nextPlaying,
         isPaused: nextPaused,
-        isLocalOnly: nextLocal,
-        syncedActiveStreams: same ? prev : nextActive,
+        gmMuted: nextGmMuted,
+        syncedActiveStreams,
       }
     })
   },
@@ -277,18 +355,28 @@ const useStore = create((set, get) => ({
     const state = get()
     return {
       version: 1,
+      app: 'warpsong',
       folders: state.folders,
     }
   },
 
   importData: (data) => {
-    if (!data || !data.folders) return
+    if (!data || !data.folders) {
+      return { ok: false, error: 'Invalid file: missing folders' }
+    }
+    const folders = sanitizeFolders(data.folders)
+    if (!folders) {
+      return { ok: false, error: 'Invalid file: bad folders format' }
+    }
     set({
-      folders: data.folders,
+      folders,
       playingStreams: {},
       isPaused: false,
+      gmMuted: false,
       syncedActiveStreams: [],
+      playbackErrors: {},
     })
+    return { ok: true }
   },
 }))
 
