@@ -18,10 +18,35 @@ const STREAM_EMOJIS = [
   '👁️', '🌀', '✨', '🔮',
 ]
 
+function ErrorBanner() {
+  const playbackErrors = useStore((s) => s.playbackErrors)
+  const clearPlaybackError = useStore((s) => s.clearPlaybackError)
+  const clearAllPlaybackErrors = useStore((s) => s.clearAllPlaybackErrors)
+  const entries = Object.entries(playbackErrors || {})
+  if (!entries.length) return null
+  return (
+    <div className="error-banner">
+      <div className="error-banner-head">
+        <strong>Playback errors</strong>
+        <button type="button" onClick={clearAllPlaybackErrors}>
+          Clear all
+        </button>
+      </div>
+      {entries.map(([key, msg]) => (
+        <div key={key} className="error-item">
+          <span>{msg}</span>
+          <button type="button" onClick={() => clearPlaybackError(key)}>
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function App() {
   const [ready, setReady] = useState(false)
   const [role, setRole] = useState(null)
-  // home | folder | folder-visual | stream | stream-visual
   const [view, setView] = useState('home')
   const [activeFolderId, setActiveFolderId] = useState(null)
   const [activeStreamId, setActiveStreamId] = useState(null)
@@ -32,14 +57,16 @@ function App() {
     isPaused,
     isLocalOnly,
     globalVolume,
-    isMuted,
+    gmMuted,
+    localMuted,
     syncedActiveStreams,
     toggleStream,
     stopAll,
     setPaused,
     setLocalOnly,
     setGlobalVolume,
-    setMuted,
+    setGmMuted,
+    setLocalMuted,
     addFolder,
     updateFolder,
     deleteFolder,
@@ -84,11 +111,11 @@ function App() {
       warpsong: {
         playingStreams,
         isPaused,
-        isLocalOnly,
+        gmMuted,
         activeStreams,
       },
     })
-  }, [playingStreams, isPaused, isLocalOnly, folders, role])
+  }, [playingStreams, isPaused, gmMuted, isLocalOnly, folders, role])
 
   const handleSave = () => {
     const data = exportData()
@@ -98,7 +125,7 @@ function App() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'warpsong.djinni.json'
+    a.download = 'warpsong.json'
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -113,9 +140,16 @@ function App() {
       const reader = new FileReader()
       reader.onload = () => {
         try {
-          importData(JSON.parse(reader.result))
+          const parsed = JSON.parse(reader.result)
+          const result = importData(parsed)
+          if (!result.ok) alert(result.error || 'Invalid file')
+          else {
+            setView('home')
+            setActiveFolderId(null)
+            setActiveStreamId(null)
+          }
         } catch {
-          alert('Invalid file')
+          alert('Invalid file: not JSON')
         }
       }
       reader.readAsText(file)
@@ -160,6 +194,7 @@ function App() {
     return <div className="loading">Loading WarpSong…</div>
   }
 
+  // ---------- PLAYER ----------
   if (role === 'PLAYER') {
     return (
       <div className="app">
@@ -169,8 +204,11 @@ function App() {
             <span className="subtitle">Player</span>
           </div>
         </div>
+        <ErrorBanner />
         <div className="player-view">
           <p className="player-hint">The Changer weaves the score…</p>
+          {isPaused && <p className="status-pill">GM paused</p>}
+          {gmMuted && <p className="status-pill">GM muted</p>}
           {syncedActiveStreams?.length > 0 ? (
             <div className="now-playing">
               <strong>Now playing</strong>
@@ -196,8 +234,8 @@ function App() {
               onChange={(e) => setGlobalVolume(Number(e.target.value))}
             />
           </label>
-          <button onClick={() => setMuted(!isMuted)}>
-            {isMuted ? 'Unmute' : 'Mute'}
+          <button onClick={() => setLocalMuted(!localMuted)}>
+            {localMuted ? 'Unmute (local)' : 'Mute (local)'}
           </button>
           <p className="autoplay-hint">
             Tap Volume or Mute once if you hear nothing (Chrome autoplay)
@@ -208,6 +246,7 @@ function App() {
     )
   }
 
+  // ---------- GM ----------
   return (
     <div className="app">
       <div className="topbar">
@@ -245,6 +284,8 @@ function App() {
         )}
       </div>
 
+      <ErrorBanner />
+
       <div className="global-controls">
         <button
           className={isLocalOnly ? 'active' : ''}
@@ -267,12 +308,15 @@ function App() {
             onChange={(e) => setGlobalVolume(Number(e.target.value))}
           />
         </label>
-        <button onClick={() => setMuted(!isMuted)}>
-          {isMuted ? 'Unmute' : 'Mute'}
+        <button
+          className={gmMuted ? 'active' : ''}
+          onClick={() => setGmMuted(!gmMuted)}
+          title="Mutes everyone (synced)"
+        >
+          {gmMuted ? 'Unmute' : 'Mute'}
         </button>
       </div>
 
-      {/* HOME */}
       {view === 'home' && (
         <div className="grid">
           {folders.map((folder) => {
@@ -324,7 +368,6 @@ function App() {
         </div>
       )}
 
-      {/* FOLDER */}
       {view === 'folder' && activeFolder && (
         <div className="folder-screen">
           <div className="folder-toolbar">
@@ -412,7 +455,6 @@ function App() {
         </div>
       )}
 
-      {/* FOLDER VISUAL */}
       {view === 'folder-visual' && activeFolder && (
         <div className="stream-screen">
           <div className="settings-block">
@@ -459,7 +501,6 @@ function App() {
         </div>
       )}
 
-      {/* STREAM SOUND */}
       {view === 'stream' && activeFolder && activeStream && (
         <div className="stream-screen">
           <div className="settings-block">
@@ -599,7 +640,6 @@ function App() {
         </div>
       )}
 
-      {/* STREAM VISUAL */}
       {view === 'stream-visual' && activeFolder && activeStream && (
         <div className="stream-screen">
           <div className="settings-block">
