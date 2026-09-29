@@ -516,3 +516,52 @@ button.danger {
   background: rgba(123, 92, 255, 0.35);
   box-shadow: 0 0 8px rgba(123, 92, 255, 0.35);
 }
+
+.error-banner {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  background: rgba(80, 20, 30, 0.85);
+  border-bottom: 1px solid rgba(255, 100, 120, 0.4);
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.error-banner-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  color: #ffb4c0;
+  font-size: 12px;
+}
+
+.error-banner-head button,
+.error-item button {
+  background: transparent;
+  border: 1px solid rgba(255, 150, 160, 0.4);
+  color: #ffb4c0;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.error-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 11px;
+  color: #ffc9d0;
+  margin-top: 4px;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(123, 92, 255, 0.25);
+  border: 1px solid rgba(201, 162, 39, 0.35);
+  color: #f0e6c8;
+  font-size: 11px;
+}
