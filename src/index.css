@@ -32,7 +32,85 @@ html, body, #root {
   letter-spacing: 0.04em;
 }
 
-/* TOP BAR */
+/* ========== RANGE SLIDERS (desktop + mobile) ========== */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    rgba(123, 92, 255, 0.55),
+    rgba(201, 162, 39, 0.45)
+  );
+  background-color: rgba(84, 81, 107, 0.85);
+  outline: none;
+  cursor: pointer;
+  border: 1px solid rgba(167, 139, 250, 0.25);
+}
+
+/* WebKit track */
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(84, 81, 107, 0.95);
+}
+
+/* WebKit thumb */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #f0e6c8, #c9a227 55%, #7b5cff);
+  border: 1px solid rgba(240, 230, 200, 0.55);
+  box-shadow: 0 0 8px rgba(123, 92, 255, 0.55);
+  cursor: pointer;
+}
+
+input[type="range"]:hover::-webkit-slider-thumb {
+  box-shadow: 0 0 12px rgba(201, 162, 39, 0.55);
+}
+
+input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.08);
+}
+
+/* Firefox track */
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(84, 81, 107, 0.95);
+  border: none;
+}
+
+input[type="range"]::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #7b5cff, #c9a227);
+}
+
+/* Firefox thumb */
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #f0e6c8, #c9a227 55%, #7b5cff);
+  border: 1px solid rgba(240, 230, 200, 0.55);
+  box-shadow: 0 0 8px rgba(123, 92, 255, 0.55);
+  cursor: pointer;
+}
+
+/* compact top bar volume */
+.global-controls input[type="range"] {
+  width: 90px;
+  min-width: 90px;
+}
+
+/* ========== TOP BAR ========== */
 .topbar {
   display: flex;
   align-items: center;
@@ -128,7 +206,7 @@ button.danger {
   font-size: 16px;
 }
 
-/* GLOBAL CONTROLS */
+/* ========== GLOBAL CONTROLS ========== */
 .global-controls {
   display: flex;
   align-items: center;
@@ -148,12 +226,7 @@ button.danger {
   color: #c4b5fd;
 }
 
-.global-controls input[type="range"] {
-  width: 80px;
-  accent-color: #7b5cff;
-}
-
-/* GRID */
+/* ========== GRID / TILES ========== */
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
@@ -290,7 +363,7 @@ button.danger {
   z-index: 2;
 }
 
-/* FOLDER / STREAM SCREENS */
+/* ========== SCREENS ========== */
 .folder-screen,
 .stream-screen {
   flex: 1;
@@ -331,7 +404,7 @@ button.danger {
   font-size: 18px;
 }
 
-/* SETTINGS */
+/* ========== SETTINGS ========== */
 .settings-block {
   padding: 12px;
   border-bottom: 1px solid rgba(90, 70, 140, 0.3);
@@ -357,11 +430,6 @@ button.danger {
   padding: 6px 8px;
   border-radius: 6px;
   font-size: 13px;
-}
-
-.settings-block input[type="range"] {
-  width: 100%;
-  accent-color: #7b5cff;
 }
 
 .settings-block input[type="color"] {
@@ -517,6 +585,7 @@ button.danger {
   box-shadow: 0 0 8px rgba(123, 92, 255, 0.35);
 }
 
+/* ========== ERRORS / STATUS ========== */
 .error-banner {
   flex-shrink: 0;
   padding: 8px 12px;
