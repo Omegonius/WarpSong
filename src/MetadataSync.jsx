@@ -26,6 +26,8 @@ export default function MetadataSync({ enabled }) {
 
       if (timer.current) clearTimeout(timer.current)
 
+      // fades tick often — slightly longer debounce still ok for volume;
+      // play/stop uses same path but 80ms is fine
       timer.current = setTimeout(() => {
         const latest = useStore.getState()
         if (latest.isLocalOnly) return
@@ -44,7 +46,7 @@ export default function MetadataSync({ enabled }) {
         } catch (err) {
           console.warn('WarpSong metadata failed', err)
         }
-      }, 120)
+      }, 80)
     })
 
     return () => {
