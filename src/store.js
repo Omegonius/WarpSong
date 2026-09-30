@@ -16,6 +16,7 @@ const defaultFolders = () => [
         volume: 0.7,
         fadeOut: 3,
         fadeIn: 0,
+        muted: false,
         links: [
           {
             id: 'link-1',
@@ -53,6 +54,7 @@ function sanitizeFolders(folders) {
           volume: clamp01(stream.volume ?? 0.7),
           fadeIn: Math.max(0, Number(stream.fadeIn) || 0),
           fadeOut: Math.max(0, Number(stream.fadeOut) || 0),
+          muted: !!stream.muted,
           links: Array.isArray(stream.links)
             ? stream.links.map((link, li) => ({
                 id: link.id || `link-\( {li}- \){Date.now()}`,
@@ -68,11 +70,19 @@ function sanitizeFolders(folders) {
 }
 
 function streamToPlaybackEntry(stream) {
+  const fadeIn = Math.max(0, Number(stream.fadeIn) || 0)
+  const fadeOut = Math.max(0, Number(stream.fadeOut) || 0)
   return {
     id: stream.id,
     name: stream.name,
     emoji: stream.emoji || '🎵',
     volume: stream.volume ?? 0.7,
+    muted: !!stream.muted,
+    fadeIn,
+    fadeOut,
+    fadeFactor: fadeIn > 0 ? 0 : 1,
+    fadingIn: fadeIn > 0,
+    fadingOut: false,
     links: (stream.links || [])
       .filter((l) => l.url)
       .map((l) => ({
@@ -92,14 +102,51 @@ function findStream(folders, streamId) {
   return null
 }
 
-function rebuildCurrentlyStreaming(folders, playingStreams) {
+function rebuildFromFolders(folders, playingStreams, prevList = []) {
+  const prevById = {}
+  prevList.forEach((e) => {
+    prevById[e.id] = e
+  })
   const list = []
   folders.forEach((folder) => {
     folder.streams.forEach((stream) => {
-      if (playingStreams[stream.id]) {
-        list.push(streamToPlaybackEntry(stream))
+      if (!playingStreams[stream.id]) return
+      const prev = prevById[stream.id]
+      // keep fade state if still playing / fading
+      if (prev && (prev.fadingOut || prev.fadingIn)) {
+        list.push({
+          ...prev,
+          name: stream.name,
+          emoji: stream.emoji || prev.emoji,
+          volume: stream.volume ?? prev.volume,
+          muted: !!stream.muted,
+          fadeIn: Math.max(0, Number(stream.fadeIn) || 0),
+          fadeOut: Math.max(0, Number(stream.fadeOut) || 0),
+          links: (stream.links || [])
+            .filter((l) => l.url)
+            .map((l) => ({
+              id: l.id,
+              url: l.url,
+              volume: l.volume ?? 1,
+              loop: l.loop !== false,
+            })),
+        })
+      } else {
+        const entry = streamToPlaybackEntry(stream)
+        // if already was playing without fade, keep full volume
+        if (prev && !prev.fadingOut) {
+          entry.fadeFactor = prev.fadeFactor ?? 1
+          entry.fadingIn = false
+        }
+        list.push(entry)
       }
     })
+  })
+  // keep pure fade-outs even if removed from playingStreams flag
+  prevList.forEach((e) => {
+    if (e.fadingOut && !list.some((x) => x.id === e.id)) {
+      list.push(e)
+    }
   })
   return list
 }
@@ -113,7 +160,10 @@ const useStore = create((set, get) => ({
   gmMuted: false,
   localMuted: false,
   globalVolume: 0.8,
+  audioUnlocked: false,
   playbackErrors: {},
+
+  unlockAudio: () => set({ audioUnlocked: true }),
 
   addFolder: () =>
     set((state) => ({
@@ -148,7 +198,11 @@ const useStore = create((set, get) => ({
       return {
         folders,
         playingStreams,
-        currentlyStreaming: rebuildCurrentlyStreaming(folders, playingStreams),
+        currentlyStreaming: rebuildFromFolders(
+          folders,
+          playingStreams,
+          state.currentlyStreaming
+        ).filter((e) => !folder?.streams.some((s) => s.id === e.id)),
       }
     }),
 
@@ -168,6 +222,7 @@ const useStore = create((set, get) => ({
                   volume: 0.7,
                   fadeOut: 3,
                   fadeIn: 0,
+                  muted: false,
                   links: [],
                 },
               ],
@@ -188,9 +243,11 @@ const useStore = create((set, get) => ({
             }
           : folder
       )
-      const currentlyStreaming = state.playingStreams[streamId]
-        ? rebuildCurrentlyStreaming(folders, state.playingStreams)
-        : state.currentlyStreaming
+      const currentlyStreaming =
+        state.playingStreams[streamId] ||
+        state.currentlyStreaming.some((e) => e.id === streamId)
+          ? rebuildFromFolders(folders, state.playingStreams, state.currentlyStreaming)
+          : state.currentlyStreaming
       return { folders, currentlyStreaming }
     }),
 
@@ -209,7 +266,9 @@ const useStore = create((set, get) => ({
       return {
         folders,
         playingStreams,
-        currentlyStreaming: rebuildCurrentlyStreaming(folders, playingStreams),
+        currentlyStreaming: state.currentlyStreaming.filter(
+          (e) => e.id !== streamId
+        ),
       }
     }),
 
@@ -240,7 +299,7 @@ const useStore = create((set, get) => ({
           : folder
       )
       const currentlyStreaming = state.playingStreams[streamId]
-        ? rebuildCurrentlyStreaming(folders, state.playingStreams)
+        ? rebuildFromFolders(folders, state.playingStreams, state.currentlyStreaming)
         : state.currentlyStreaming
       return { folders, currentlyStreaming }
     }),
@@ -265,7 +324,7 @@ const useStore = create((set, get) => ({
           : folder
       )
       const currentlyStreaming = state.playingStreams[streamId]
-        ? rebuildCurrentlyStreaming(folders, state.playingStreams)
+        ? rebuildFromFolders(folders, state.playingStreams, state.currentlyStreaming)
         : state.currentlyStreaming
       return { folders, currentlyStreaming }
     }),
@@ -288,7 +347,7 @@ const useStore = create((set, get) => ({
           : folder
       )
       const currentlyStreaming = state.playingStreams[streamId]
-        ? rebuildCurrentlyStreaming(folders, state.playingStreams)
+        ? rebuildFromFolders(folders, state.playingStreams, state.currentlyStreaming)
         : state.currentlyStreaming
       return { folders, currentlyStreaming }
     }),
@@ -296,28 +355,126 @@ const useStore = create((set, get) => ({
   toggleStream: (streamId) =>
     set((state) => {
       const playingStreams = { ...state.playingStreams }
-      if (playingStreams[streamId]) {
+      const stream = findStream(state.folders, streamId)
+      if (!stream) return state
+
+      const isOn = !!playingStreams[streamId]
+      const isFadingOut = state.currentlyStreaming.some(
+        (e) => e.id === streamId && e.fadingOut
+      )
+
+      // stop / interrupt fade-out → start again
+      if (isOn || isFadingOut) {
+        const fadeOut = Math.max(0, Number(stream.fadeOut) || 0)
+        if (fadeOut > 0 && isOn && !isFadingOut) {
+          // begin fade out, keep in list
+          const currentlyStreaming = state.currentlyStreaming.map((e) =>
+            e.id === streamId
+              ? {
+                  ...e,
+                  fadingOut: true,
+                  fadingIn: false,
+                  fadeOut,
+                }
+              : e
+          )
+          // still "playing" in UI until fade ends
+          return { currentlyStreaming, isPaused: false }
+        }
+        // hard stop
         delete playingStreams[streamId]
-      } else {
-        const stream = findStream(state.folders, streamId)
-        if (!stream) return state
-        playingStreams[streamId] = true
+        return {
+          playingStreams,
+          isPaused: false,
+          currentlyStreaming: state.currentlyStreaming.filter(
+            (e) => e.id !== streamId
+          ),
+        }
       }
+
+      // start
+      playingStreams[streamId] = true
+      const entry = streamToPlaybackEntry(stream)
+      const without = state.currentlyStreaming.filter((e) => e.id !== streamId)
       return {
         playingStreams,
         isPaused: false,
-        currentlyStreaming: rebuildCurrentlyStreaming(
-          state.folders,
-          playingStreams
-        ),
+        currentlyStreaming: [...without, entry],
       }
     }),
 
   stopAll: () =>
-    set({
-      playingStreams: {},
-      currentlyStreaming: [],
-      isPaused: false,
+    set((state) => {
+      // fade out all that have fadeOut > 0
+      const currentlyStreaming = state.currentlyStreaming.map((e) => {
+        const stream = findStream(state.folders, e.id)
+        const fadeOut = Math.max(0, Number(stream?.fadeOut ?? e.fadeOut) || 0)
+        if (fadeOut > 0 && !e.fadingOut) {
+          return { ...e, fadingOut: true, fadingIn: false, fadeOut }
+        }
+        return e
+      })
+      const hard = currentlyStreaming.filter((e) => !e.fadingOut)
+      if (hard.length === currentlyStreaming.length) {
+        return {
+          playingStreams: {},
+          currentlyStreaming: [],
+          isPaused: false,
+        }
+      }
+      // remove hard-stop ones, keep fading
+      const fading = currentlyStreaming.filter((e) => e.fadingOut)
+      const playingStreams = {}
+      fading.forEach((e) => {
+        playingStreams[e.id] = true
+      })
+      return {
+        playingStreams,
+        currentlyStreaming: fading,
+        isPaused: false,
+      }
+    }),
+
+  /** Called every \~100ms by FadeEngine */
+  tickFades: (dtSec) =>
+    set((state) => {
+      if (!state.currentlyStreaming.length) return state
+      let changed = false
+      const playingStreams = { ...state.playingStreams }
+      const next = []
+
+      state.currentlyStreaming.forEach((entry) => {
+        if (entry.fadingOut) {
+          changed = true
+          const dur = Math.max(0.05, Number(entry.fadeOut) || 0.05)
+          const factor = Math.max(0, (entry.fadeFactor ?? 1) - dtSec / dur)
+          if (factor <= 0.001) {
+            delete playingStreams[entry.id]
+            return
+          }
+          next.push({ ...entry, fadeFactor: factor, fadingIn: false })
+          return
+        }
+        if (entry.fadingIn) {
+          changed = true
+          const dur = Math.max(0.05, Number(entry.fadeIn) || 0.05)
+          const factor = Math.min(1, (entry.fadeFactor ?? 0) + dtSec / dur)
+          if (factor >= 0.999) {
+            next.push({
+              ...entry,
+              fadeFactor: 1,
+              fadingIn: false,
+            })
+          } else {
+            next.push({ ...entry, fadeFactor: factor })
+          }
+          return
+        }
+        next.push(entry)
+      })
+
+      if (!changed) return state
+      return { currentlyStreaming: next, playingStreams }
     }),
 
   setPaused: (value) => set({ isPaused: !!value }),
