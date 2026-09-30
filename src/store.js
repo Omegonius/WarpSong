@@ -39,14 +39,14 @@ function clamp01(n) {
 function sanitizeFolders(folders) {
   if (!Array.isArray(folders)) return null
   return folders.map((folder, fi) => ({
-    id: folder.id || `folder-${fi}-${Date.now()}`,
+    id: folder.id || `folder-\( {fi}- \){Date.now()}`,
     name: String(folder.name ?? 'Folder'),
     color: folder.color || '#7B5CFF',
     emoji: folder.emoji || '📁',
     collapsed: !!folder.collapsed,
     streams: Array.isArray(folder.streams)
       ? folder.streams.map((stream, si) => ({
-          id: stream.id || `stream-${si}-${Date.now()}`,
+          id: stream.id || `stream-\( {si}- \){Date.now()}`,
           name: String(stream.name ?? 'Stream'),
           emoji: stream.emoji || '🎵',
           color: stream.color || '#5C7CFF',
@@ -55,7 +55,7 @@ function sanitizeFolders(folders) {
           fadeOut: Math.max(0, Number(stream.fadeOut) || 0),
           links: Array.isArray(stream.links)
             ? stream.links.map((link, li) => ({
-                id: link.id || `link-${li}-${Date.now()}`,
+                id: link.id || `link-\( {li}- \){Date.now()}`,
                 url: String(link.url ?? ''),
                 volume: clamp01(link.volume ?? 1),
                 loop: link.loop !== false,
@@ -67,25 +67,52 @@ function sanitizeFolders(folders) {
   }))
 }
 
-function normalizePlaying(raw) {
-  const out = {}
-  if (!raw || typeof raw !== 'object') return out
-  Object.keys(raw).forEach((id) => {
-    if (raw[id]) out[id] = true
+function streamToPlaybackEntry(stream) {
+  return {
+    id: stream.id,
+    name: stream.name,
+    emoji: stream.emoji || '🎵',
+    volume: stream.volume ?? 0.7,
+    links: (stream.links || [])
+      .filter((l) => l.url)
+      .map((l) => ({
+        id: l.id,
+        url: l.url,
+        volume: l.volume ?? 1,
+        loop: l.loop !== false,
+      })),
+  }
+}
+
+function findStream(folders, streamId) {
+  for (const folder of folders) {
+    const stream = folder.streams.find((s) => s.id === streamId)
+    if (stream) return stream
+  }
+  return null
+}
+
+function rebuildCurrentlyStreaming(folders, playingStreams) {
+  const list = []
+  folders.forEach((folder) => {
+    folder.streams.forEach((stream) => {
+      if (playingStreams[stream.id]) {
+        list.push(streamToPlaybackEntry(stream))
+      }
+    })
   })
-  return out
+  return list
 }
 
 const useStore = create((set, get) => ({
   folders: defaultFolders(),
-
+  currentlyStreaming: [],
   playingStreams: {},
   isPaused: false,
   isLocalOnly: false,
   gmMuted: false,
   localMuted: false,
   globalVolume: 0.8,
-  syncedActiveStreams: [],
   playbackErrors: {},
 
   addFolder: () =>
@@ -117,9 +144,11 @@ const useStore = create((set, get) => ({
       folder?.streams.forEach((stream) => {
         delete playingStreams[stream.id]
       })
+      const folders = state.folders.filter((f) => f.id !== folderId)
       return {
-        folders: state.folders.filter((folder) => folder.id !== folderId),
+        folders,
         playingStreams,
+        currentlyStreaming: rebuildCurrentlyStreaming(folders, playingStreams),
       }
     }),
 
@@ -148,8 +177,8 @@ const useStore = create((set, get) => ({
     })),
 
   updateStream: (folderId, streamId, changes) =>
-    set((state) => ({
-      folders: state.folders.map((folder) =>
+    set((state) => {
+      const folders = state.folders.map((folder) =>
         folder.id === folderId
           ? {
               ...folder,
@@ -158,29 +187,35 @@ const useStore = create((set, get) => ({
               ),
             }
           : folder
-      ),
-    })),
+      )
+      const currentlyStreaming = state.playingStreams[streamId]
+        ? rebuildCurrentlyStreaming(folders, state.playingStreams)
+        : state.currentlyStreaming
+      return { folders, currentlyStreaming }
+    }),
 
   deleteStream: (folderId, streamId) =>
     set((state) => {
       const playingStreams = { ...state.playingStreams }
       delete playingStreams[streamId]
+      const folders = state.folders.map((folder) =>
+        folder.id === folderId
+          ? {
+              ...folder,
+              streams: folder.streams.filter((s) => s.id !== streamId),
+            }
+          : folder
+      )
       return {
-        folders: state.folders.map((folder) =>
-          folder.id === folderId
-            ? {
-                ...folder,
-                streams: folder.streams.filter((s) => s.id !== streamId),
-              }
-            : folder
-        ),
+        folders,
         playingStreams,
+        currentlyStreaming: rebuildCurrentlyStreaming(folders, playingStreams),
       }
     }),
 
   addLink: (folderId, streamId) =>
-    set((state) => ({
-      folders: state.folders.map((folder) =>
+    set((state) => {
+      const folders = state.folders.map((folder) =>
         folder.id === folderId
           ? {
               ...folder,
@@ -203,12 +238,16 @@ const useStore = create((set, get) => ({
               ),
             }
           : folder
-      ),
-    })),
+      )
+      const currentlyStreaming = state.playingStreams[streamId]
+        ? rebuildCurrentlyStreaming(folders, state.playingStreams)
+        : state.currentlyStreaming
+      return { folders, currentlyStreaming }
+    }),
 
   updateLink: (folderId, streamId, linkId, changes) =>
-    set((state) => ({
-      folders: state.folders.map((folder) =>
+    set((state) => {
+      const folders = state.folders.map((folder) =>
         folder.id === folderId
           ? {
               ...folder,
@@ -224,12 +263,16 @@ const useStore = create((set, get) => ({
               ),
             }
           : folder
-      ),
-    })),
+      )
+      const currentlyStreaming = state.playingStreams[streamId]
+        ? rebuildCurrentlyStreaming(folders, state.playingStreams)
+        : state.currentlyStreaming
+      return { folders, currentlyStreaming }
+    }),
 
   deleteLink: (folderId, streamId, linkId) =>
-    set((state) => ({
-      folders: state.folders.map((folder) =>
+    set((state) => {
+      const folders = state.folders.map((folder) =>
         folder.id === folderId
           ? {
               ...folder,
@@ -243,18 +286,39 @@ const useStore = create((set, get) => ({
               ),
             }
           : folder
-      ),
-    })),
+      )
+      const currentlyStreaming = state.playingStreams[streamId]
+        ? rebuildCurrentlyStreaming(folders, state.playingStreams)
+        : state.currentlyStreaming
+      return { folders, currentlyStreaming }
+    }),
 
   toggleStream: (streamId) =>
     set((state) => {
       const playingStreams = { ...state.playingStreams }
-      if (playingStreams[streamId]) delete playingStreams[streamId]
-      else playingStreams[streamId] = true
-      return { playingStreams, isPaused: false }
+      if (playingStreams[streamId]) {
+        delete playingStreams[streamId]
+      } else {
+        const stream = findStream(state.folders, streamId)
+        if (!stream) return state
+        playingStreams[streamId] = true
+      }
+      return {
+        playingStreams,
+        isPaused: false,
+        currentlyStreaming: rebuildCurrentlyStreaming(
+          state.folders,
+          playingStreams
+        ),
+      }
     }),
 
-  stopAll: () => set({ playingStreams: {}, isPaused: false }),
+  stopAll: () =>
+    set({
+      playingStreams: {},
+      currentlyStreaming: [],
+      isPaused: false,
+    }),
 
   setPaused: (value) => set({ isPaused: !!value }),
   setLocalOnly: (value) => set({ isLocalOnly: !!value }),
@@ -277,77 +341,20 @@ const useStore = create((set, get) => ({
 
   clearAllPlaybackErrors: () => set({ playbackErrors: {} }),
 
-  getActiveStreamsPayload: () => {
-    const state = get()
-    const result = []
-    state.folders.forEach((folder) => {
-      folder.streams.forEach((stream) => {
-        if (state.playingStreams[stream.id]) {
-          result.push({
-            id: stream.id,
-            name: stream.name,
-            emoji: stream.emoji || '🎵',
-            volume: stream.volume ?? 0.7,
-            links: (stream.links || [])
-              .filter((l) => l.url)
-              .map((l) => ({
-                id: l.id,
-                url: l.url,
-                volume: l.volume ?? 1,
-                loop: !!l.loop,
-              })),
-          })
-        }
-      })
-    })
-    return result
-  },
-
   applyRemoteState: (data) => {
     if (!data) return
-    set((state) => {
-      const nextPlaying = normalizePlaying(data.playingStreams)
-      const nextPaused = !!data.isPaused
-      const nextGmMuted = !!data.gmMuted
-      const nextActive = Array.isArray(data.activeStreams)
-        ? data.activeStreams
-        : []
-
-      const prev = state.syncedActiveStreams || []
-      let syncedActiveStreams = prev
-
-      const sameShape =
-        prev.length === nextActive.length &&
-        prev.every((s, i) => s.id === nextActive[i]?.id)
-
-      if (!sameShape) {
-        syncedActiveStreams = nextActive
-      } else {
-        const changed = nextActive.some((s, i) => {
-          const p = prev[i]
-          if ((p.volume ?? 0.7) !== (s.volume ?? 0.7)) return true
-          const pl = p.links || []
-          const nl = s.links || []
-          if (pl.length !== nl.length) return true
-          return nl.some((link, j) => {
-            const prevLink = pl[j]
-            return (
-              !prevLink ||
-              prevLink.url !== link.url ||
-              (prevLink.volume ?? 1) !== (link.volume ?? 1) ||
-              !!prevLink.loop !== !!link.loop
-            )
-          })
-        })
-        if (changed) syncedActiveStreams = nextActive
-      }
-
-      return {
-        playingStreams: nextPlaying,
-        isPaused: nextPaused,
-        gmMuted: nextGmMuted,
-        syncedActiveStreams,
-      }
+    const list = Array.isArray(data.currentlyStreaming)
+      ? data.currentlyStreaming
+      : []
+    const playingStreams = {}
+    list.forEach((s) => {
+      if (s && s.id) playingStreams[s.id] = true
+    })
+    set({
+      currentlyStreaming: list,
+      playingStreams,
+      isPaused: !!data.isPaused,
+      gmMuted: !!data.gmMuted,
     })
   },
 
@@ -371,9 +378,9 @@ const useStore = create((set, get) => ({
     set({
       folders,
       playingStreams: {},
+      currentlyStreaming: [],
       isPaused: false,
       gmMuted: false,
-      syncedActiveStreams: [],
       playbackErrors: {},
     })
     return { ok: true }
