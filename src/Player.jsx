@@ -7,45 +7,39 @@ function clamp01(n) {
 }
 
 export default function Player() {
-  const folders = useStore((s) => s.folders)
-  const playingStreams = useStore((s) => s.playingStreams)
-  const syncedActiveStreams = useStore((s) => s.syncedActiveStreams)
+  const currentlyStreaming = useStore((s) => s.currentlyStreaming)
   const isPaused = useStore((s) => s.isPaused)
   const gmMuted = useStore((s) => s.gmMuted)
   const localMuted = useStore((s) => s.localMuted)
-
-  const desiredStreams = useMemo(() => {
-    const local = []
-    folders.forEach((folder) => {
-      folder.streams.forEach((stream) => {
-        if (playingStreams[stream.id]) local.push(stream)
-      })
-    })
-    if (local.length > 0) return local
-    return syncedActiveStreams || []
-  }, [folders, playingStreams, syncedActiveStreams])
 
   const poolRef = useRef(new Map())
   const [, bump] = useState(0)
   const force = () => bump((n) => n + 1)
 
-  useEffect(() => {
-    const desiredKeys = new Set()
-
-    desiredStreams.forEach((stream) => {
+  const desired = useMemo(() => {
+    const list = []
+    ;(currentlyStreaming || []).forEach((stream) => {
       ;(stream.links || []).forEach((link) => {
         if (!link.url || !/youtu/i.test(link.url)) return
-        const key = `${stream.id}::${link.id}`
-        desiredKeys.add(key)
-        poolRef.current.set(key, {
-          key,
+        list.push({
+          key: `\( {stream.id}:: \){link.id}`,
           streamId: stream.id,
           linkId: link.id,
           url: link.url,
           loop: link.loop !== false,
-          active: true,
+          streamVolume: stream.volume ?? 0.7,
+          linkVolume: link.volume ?? 1,
         })
       })
+    })
+    return list
+  }, [currentlyStreaming])
+
+  useEffect(() => {
+    const desiredKeys = new Set(desired.map((t) => t.key))
+
+    desired.forEach((t) => {
+      poolRef.current.set(t.key, { ...t, active: true })
     })
 
     poolRef.current.forEach((slot, key) => {
@@ -55,9 +49,9 @@ export default function Player() {
     })
 
     force()
-  }, [desiredStreams])
+  }, [desired])
 
-  const anyPlaying = desiredStreams.length > 0
+  const anyPlaying = desired.length > 0
   useEffect(() => {
     if (anyPlaying) return
     const t = setTimeout(() => {
@@ -76,9 +70,9 @@ export default function Player() {
         <StableYouTube
           key={slot.key}
           trackKey={slot.key}
-          streamId={slot.streamId}
-          linkId={slot.linkId}
           url={slot.url}
+          streamVolume={slot.streamVolume ?? 0.7}
+          linkVolume={slot.linkVolume ?? 1}
           playing={!!slot.active && !silenced}
           loop={slot.loop}
         />
@@ -87,40 +81,32 @@ export default function Player() {
   )
 }
 
-function StableYouTube({ trackKey, streamId, linkId, url, playing, loop }) {
+function StableYouTube({
+  trackKey,
+  url,
+  streamVolume,
+  linkVolume,
+  playing,
+  loop,
+}) {
   const ref = useRef(null)
   const [ready, setReady] = useState(false)
+  const globalVolume = useStore((s) => s.globalVolume)
+  const silenced = useStore(
+    (s) => s.isPaused || s.gmMuted || s.localMuted
+  )
   const setPlaybackError = useStore((s) => s.setPlaybackError)
   const clearPlaybackError = useStore((s) => s.clearPlaybackError)
 
-  const volume = useStore((s) => {
-    if (s.isPaused || s.gmMuted || s.localMuted) return 0
-    const global = s.globalVolume
-
-    for (const folder of s.folders) {
-      const stream = folder.streams.find((st) => st.id === streamId)
-      if (stream) {
-        const link = (stream.links || []).find((l) => l.id === linkId)
-        return clamp01(global * (stream.volume ?? 0.7) * (link?.volume ?? 1))
-      }
-    }
-
-    const remote = (s.syncedActiveStreams || []).find((st) => st.id === streamId)
-    if (remote) {
-      const link = (remote.links || []).find((l) => l.id === linkId)
-      return clamp01(global * (remote.volume ?? 0.7) * (link?.volume ?? 1))
-    }
-
-    return clamp01(global * 0.7)
-  })
+  const volume = silenced
+    ? 0
+    : clamp01(globalVolume * streamVolume * linkVolume)
 
   const applyVolume = () => {
     const yt = ref.current?.getInternalPlayer?.()
     if (!yt) return
     try {
-      if (typeof yt.setVolume === 'function') {
-        yt.setVolume(Math.round(clamp01(volume) * 100))
-      }
+      yt.setVolume?.(Math.round(clamp01(volume) * 100))
       if (volume <= 0) yt.mute?.()
       else yt.unMute?.()
     } catch {
