@@ -3,6 +3,8 @@ import OBR from '@owlbear-rodeo/sdk'
 import useStore from './store'
 import Player from './Player'
 import MetadataSync from './MetadataSync'
+import FadeEngine from './FadeEngine'
+import AutoplayUnlock from './AutoplayUnlock'
 import './index.css'
 
 const STREAM_EMOJIS = [
@@ -174,6 +176,10 @@ function App() {
     }
   }
 
+  const streamIsActive = (streamId) =>
+    !!playingStreams[streamId] ||
+    currentlyStreaming.some((e) => e.id === streamId)
+
   if (!ready) {
     return <div className="loading">Loading WarpSong…</div>
   }
@@ -181,6 +187,8 @@ function App() {
   if (role === 'PLAYER') {
     return (
       <div className="app">
+        <FadeEngine />
+        <AutoplayUnlock />
         <div className="topbar">
           <div>
             <h2>WarpSong</h2>
@@ -199,6 +207,8 @@ function App() {
                 {currentlyStreaming.map((s) => (
                   <li key={s.id}>
                     {s.emoji || '🎵'} {s.name}
+                    {s.fadingOut ? ' (fade out)' : ''}
+                    {s.muted ? ' (muted)' : ''}
                   </li>
                 ))}
               </ul>
@@ -220,9 +230,6 @@ function App() {
           <button onClick={() => setLocalMuted(!localMuted)}>
             {localMuted ? 'Unmute (local)' : 'Mute (local)'}
           </button>
-          <p className="autoplay-hint">
-            Tap Volume or Mute once if you hear nothing (Chrome autoplay)
-          </p>
         </div>
         <Player />
       </div>
@@ -232,6 +239,8 @@ function App() {
   return (
     <div className="app">
       <MetadataSync enabled={role === 'GM'} />
+      <FadeEngine />
+      <AutoplayUnlock />
       <div className="topbar">
         <div className="topbar-left">
           {view !== 'home' && (
@@ -303,8 +312,8 @@ function App() {
       {view === 'home' && (
         <div className="grid">
           {folders.map((folder) => {
-            const folderPlaying = folder.streams.some(
-              (s) => !!playingStreams[s.id]
+            const folderPlaying = folder.streams.some((s) =>
+              streamIsActive(s.id)
             )
             return (
               <div
@@ -381,7 +390,10 @@ function App() {
 
           <div className="grid">
             {activeFolder.streams.map((stream) => {
-              const isPlaying = !!playingStreams[stream.id]
+              const isPlaying = streamIsActive(stream.id)
+              const fading = currentlyStreaming.some(
+                (e) => e.id === stream.id && e.fadingOut
+              )
               return (
                 <div
                   key={stream.id}
@@ -406,10 +418,11 @@ function App() {
                     onClick={() => toggleStream(stream.id)}
                   >
                     <div className="tile-emoji">
-                      {isPlaying ? '🔊' : stream.emoji || '🎵'}
+                      {fading ? '🔉' : isPlaying ? '🔊' : stream.emoji || '🎵'}
                     </div>
                     <div className="tile-name">{stream.name}</div>
                     <div className="tile-meta">
+                      {stream.muted ? 'muted · ' : ''}
                       {stream.links.length} link
                       {stream.links.length === 1 ? '' : 's'}
                     </div>
@@ -512,6 +525,18 @@ function App() {
                   })
                 }
               />
+            </label>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={!!activeStream.muted}
+                onChange={(e) =>
+                  updateStream(activeFolder.id, activeStream.id, {
+                    muted: e.target.checked,
+                  })
+                }
+              />
+              Mute this stream
             </label>
             <div className="two-columns">
               <label>
