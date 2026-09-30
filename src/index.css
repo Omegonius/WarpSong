@@ -634,3 +634,56 @@ button.danger {
   color: #f0e6c8;
   font-size: 11px;
 }
+
+/* ========== AUTOPLAY UNLOCK ========== */
+.autoplay-unlock {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 6, 16, 0.82);
+  backdrop-filter: blur(4px);
+}
+
+.autoplay-unlock-card {
+  max-width: 280px;
+  padding: 18px 16px;
+  border-radius: 12px;
+  background: linear-gradient(160deg, rgba(40, 25, 80, 0.95), rgba(18, 12, 35, 0.98));
+  border: 1px solid rgba(201, 162, 39, 0.4);
+  text-align: center;
+  box-shadow: 0 0 24px rgba(123, 92, 255, 0.25);
+}
+
+.autoplay-unlock-card h3 {
+  color: #f0e6c8;
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+
+.autoplay-unlock-card p {
+  color: #c4b5fd;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-bottom: 14px;
+}
+
+.autoplay-unlock-btn {
+  background: linear-gradient(180deg, #5b3db8, #3a2470);
+  border: 1px solid rgba(201, 162, 39, 0.55);
+  color: #f5e6b8;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.autoplay-unlock-btn:hover {
+  box-shadow: 0 0 12px rgba(123, 92, 255, 0.4);
+}
+
+.app {
+  position: relative;
+}
