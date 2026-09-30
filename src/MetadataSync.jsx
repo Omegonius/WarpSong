@@ -2,12 +2,28 @@ import { useEffect, useRef } from 'react'
 import OBR from '@owlbear-rodeo/sdk'
 import useStore from './store'
 
+/** Fade progress (fadeFactor) is LOCAL — do not sync every tick */
+function serializeStreaming(list) {
+  return (list || []).map((s) => ({
+    id: s.id,
+    name: s.name,
+    emoji: s.emoji,
+    volume: s.volume,
+    muted: !!s.muted,
+    fadeIn: s.fadeIn,
+    fadeOut: s.fadeOut,
+    fadingIn: !!s.fadingIn,
+    fadingOut: !!s.fadingOut,
+    links: s.links || [],
+  }))
+}
+
 function stablePayload(state) {
   return JSON.stringify({
     isPaused: !!state.isPaused,
     gmMuted: !!state.gmMuted,
     isLocalOnly: !!state.isLocalOnly,
-    currentlyStreaming: state.currentlyStreaming || [],
+    currentlyStreaming: serializeStreaming(state.currentlyStreaming),
   })
 }
 
@@ -26,8 +42,6 @@ export default function MetadataSync({ enabled }) {
 
       if (timer.current) clearTimeout(timer.current)
 
-      // fades tick often — slightly longer debounce still ok for volume;
-      // play/stop uses same path but 80ms is fine
       timer.current = setTimeout(() => {
         const latest = useStore.getState()
         if (latest.isLocalOnly) return
@@ -40,13 +54,13 @@ export default function MetadataSync({ enabled }) {
             warpsong: {
               isPaused: !!latest.isPaused,
               gmMuted: !!latest.gmMuted,
-              currentlyStreaming: latest.currentlyStreaming || [],
+              currentlyStreaming: serializeStreaming(latest.currentlyStreaming),
             },
           })
         } catch (err) {
           console.warn('WarpSong metadata failed', err)
         }
-      }, 80)
+      }, 100)
     })
 
     return () => {
