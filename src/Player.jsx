@@ -11,6 +11,7 @@ export default function Player() {
   const isPaused = useStore((s) => s.isPaused)
   const gmMuted = useStore((s) => s.gmMuted)
   const localMuted = useStore((s) => s.localMuted)
+  const audioUnlocked = useStore((s) => s.audioUnlocked)
 
   const poolRef = useRef(new Map())
   const [, bump] = useState(0)
@@ -23,12 +24,12 @@ export default function Player() {
         if (!link.url || !/youtu/i.test(link.url)) return
         list.push({
           key: `\( {stream.id}:: \){link.id}`,
-          streamId: stream.id,
-          linkId: link.id,
           url: link.url,
           loop: link.loop !== false,
           streamVolume: stream.volume ?? 0.7,
           linkVolume: link.volume ?? 1,
+          fadeFactor: stream.fadeFactor ?? 1,
+          streamMuted: !!stream.muted,
         })
       })
     })
@@ -37,17 +38,14 @@ export default function Player() {
 
   useEffect(() => {
     const desiredKeys = new Set(desired.map((t) => t.key))
-
     desired.forEach((t) => {
       poolRef.current.set(t.key, { ...t, active: true })
     })
-
     poolRef.current.forEach((slot, key) => {
       if (!desiredKeys.has(key)) {
         poolRef.current.set(key, { ...slot, active: false })
       }
     })
-
     force()
   }, [desired])
 
@@ -62,7 +60,7 @@ export default function Player() {
   }, [anyPlaying])
 
   const slots = Array.from(poolRef.current.values())
-  const silenced = isPaused || gmMuted || localMuted
+  const silenced = isPaused || gmMuted || localMuted || !audioUnlocked
 
   return (
     <div style={{ display: 'none' }}>
@@ -73,7 +71,9 @@ export default function Player() {
           url={slot.url}
           streamVolume={slot.streamVolume ?? 0.7}
           linkVolume={slot.linkVolume ?? 1}
-          playing={!!slot.active && !silenced}
+          fadeFactor={slot.fadeFactor ?? 1}
+          streamMuted={!!slot.streamMuted}
+          playing={!!slot.active && !silenced && !slot.streamMuted}
           loop={slot.loop}
         />
       ))}
@@ -86,6 +86,8 @@ function StableYouTube({
   url,
   streamVolume,
   linkVolume,
+  fadeFactor,
+  streamMuted,
   playing,
   loop,
 }) {
@@ -93,14 +95,15 @@ function StableYouTube({
   const [ready, setReady] = useState(false)
   const globalVolume = useStore((s) => s.globalVolume)
   const silenced = useStore(
-    (s) => s.isPaused || s.gmMuted || s.localMuted
+    (s) => s.isPaused || s.gmMuted || s.localMuted || !s.audioUnlocked
   )
   const setPlaybackError = useStore((s) => s.setPlaybackError)
   const clearPlaybackError = useStore((s) => s.clearPlaybackError)
 
-  const volume = silenced
-    ? 0
-    : clamp01(globalVolume * streamVolume * linkVolume)
+  const volume =
+    silenced || streamMuted
+      ? 0
+      : clamp01(globalVolume * streamVolume * linkVolume * (fadeFactor ?? 1))
 
   const applyVolume = () => {
     const yt = ref.current?.getInternalPlayer?.()
