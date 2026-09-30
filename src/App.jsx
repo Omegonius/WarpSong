@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import OBR from '@owlbear-rodeo/sdk'
 import useStore from './store'
 import Player from './Player'
+import MetadataSync from './MetadataSync'
 import './index.css'
 
 const STREAM_EMOJIS = [
@@ -54,12 +55,12 @@ function App() {
   const {
     folders,
     playingStreams,
+    currentlyStreaming,
     isPaused,
     isLocalOnly,
     globalVolume,
     gmMuted,
     localMuted,
-    syncedActiveStreams,
     toggleStream,
     stopAll,
     setPaused,
@@ -77,7 +78,6 @@ function App() {
     updateLink,
     deleteLink,
     applyRemoteState,
-    getActiveStreamsPayload,
     exportData,
     importData,
   } = useStore()
@@ -100,22 +100,6 @@ function App() {
       }
     })
   }, [])
-
-  useEffect(() => {
-    if (role !== 'GM') return
-    if (isLocalOnly) return
-
-    const activeStreams = getActiveStreamsPayload()
-
-    OBR.room.setMetadata({
-      warpsong: {
-        playingStreams,
-        isPaused,
-        gmMuted,
-        activeStreams,
-      },
-    })
-  }, [playingStreams, isPaused, gmMuted, isLocalOnly, folders, role])
 
   const handleSave = () => {
     const data = exportData()
@@ -194,7 +178,6 @@ function App() {
     return <div className="loading">Loading WarpSong…</div>
   }
 
-  // ---------- PLAYER ----------
   if (role === 'PLAYER') {
     return (
       <div className="app">
@@ -209,11 +192,11 @@ function App() {
           <p className="player-hint">The Changer weaves the score…</p>
           {isPaused && <p className="status-pill">GM paused</p>}
           {gmMuted && <p className="status-pill">GM muted</p>}
-          {syncedActiveStreams?.length > 0 ? (
+          {currentlyStreaming?.length > 0 ? (
             <div className="now-playing">
               <strong>Now playing</strong>
               <ul>
-                {syncedActiveStreams.map((s) => (
+                {currentlyStreaming.map((s) => (
                   <li key={s.id}>
                     {s.emoji || '🎵'} {s.name}
                   </li>
@@ -246,9 +229,9 @@ function App() {
     )
   }
 
-  // ---------- GM ----------
   return (
     <div className="app">
+      <MetadataSync enabled={role === 'GM'} />
       <div className="topbar">
         <div className="topbar-left">
           {view !== 'home' && (
