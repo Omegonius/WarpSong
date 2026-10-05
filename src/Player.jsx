@@ -12,7 +12,7 @@ function tracksFromState(state) {
     ;(stream.links || []).forEach((link) => {
       if (!link.url || !/youtu/i.test(link.url)) return
       list.push({
-        key: `\( {stream.id}:: \){link.id}`,
+        key: stream.id + '::' + link.id,
         streamId: stream.id,
         linkId: link.id,
         url: link.url,
