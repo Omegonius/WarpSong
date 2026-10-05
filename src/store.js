@@ -94,6 +94,22 @@ function streamToPlaybackEntry(stream) {
   }
 }
 
+/** Snapshot for Owlbear metadata (no fadeFactor ticks) */
+export function toRoomStreaming(list) {
+  return (list || []).map((s) => ({
+    id: s.id,
+    name: s.name,
+    emoji: s.emoji,
+    volume: s.volume,
+    muted: !!s.muted,
+    fadeIn: s.fadeIn,
+    fadeOut: s.fadeOut,
+    fadingIn: !!s.fadingIn,
+    fadingOut: !!s.fadingOut,
+    links: s.links || [],
+  }))
+}
+
 function findStream(folders, streamId) {
   for (const folder of folders) {
     const stream = folder.streams.find((s) => s.id === streamId)
@@ -150,17 +166,32 @@ function rebuildFromFolders(folders, playingStreams, prevList = []) {
 
 const useStore = create((set, get) => ({
   folders: defaultFolders(),
+  /** Local playback (GM hears live volume while editing) */
   currentlyStreaming: [],
+  /**
+   * Committed snapshot for room metadata.
+   * Stream/link volume updates only land here on commitRoomStreaming (Back)
+   * or on play/stop/structure changes.
+   */
+  roomStreaming: [],
   playingStreams: {},
   isPaused: false,
   isLocalOnly: false,
   gmMuted: false,
   localMuted: false,
   globalVolume: 0.8,
+  /** GM master from metadata (players multiply; GM ignores) */
+  roomGlobalVolume: 1,
   audioUnlocked: false,
   playbackErrors: {},
 
   unlockAudio: () => set({ audioUnlocked: true }),
+
+  /** Commit current playback volumes/flags to room (call on Back from stream settings) */
+  commitRoomStreaming: () =>
+    set((state) => ({
+      roomStreaming: toRoomStreaming(state.currentlyStreaming),
+    })),
 
   addFolder: () =>
     set((state) => ({
@@ -192,14 +223,14 @@ const useStore = create((set, get) => ({
         delete playingStreams[stream.id]
       })
       const folders = state.folders.filter((f) => f.id !== folderId)
+      const currentlyStreaming = state.currentlyStreaming.filter(
+        (e) => !folder?.streams.some((s) => s.id === e.id)
+      )
       return {
         folders,
         playingStreams,
-        currentlyStreaming: rebuildFromFolders(
-          folders,
-          playingStreams,
-          state.currentlyStreaming
-        ).filter((e) => !folder?.streams.some((s) => s.id === e.id)),
+        currentlyStreaming,
+        roomStreaming: toRoomStreaming(currentlyStreaming),
       }
     }),
 
@@ -228,6 +259,10 @@ const useStore = create((set, get) => ({
       ),
     })),
 
+  /**
+   * Edit stream fields. Updates folders + local currentlyStreaming (GM hears).
+   * Does NOT update roomStreaming — call commitRoomStreaming on panel close.
+   */
   updateStream: (folderId, streamId, changes) =>
     set((state) => {
       const folders = state.folders.map((folder) =>
@@ -264,12 +299,14 @@ const useStore = create((set, get) => ({
             }
           : folder
       )
+      const currentlyStreaming = state.currentlyStreaming.filter(
+        (e) => e.id !== streamId
+      )
       return {
         folders,
         playingStreams,
-        currentlyStreaming: state.currentlyStreaming.filter(
-          (e) => e.id !== streamId
-        ),
+        currentlyStreaming,
+        roomStreaming: toRoomStreaming(currentlyStreaming),
       }
     }),
 
@@ -299,6 +336,7 @@ const useStore = create((set, get) => ({
             }
           : folder
       )
+      // links with empty url ignored in playback; no room commit until Back
       const currentlyStreaming = state.playingStreams[streamId]
         ? rebuildFromFolders(
             folders,
@@ -391,29 +429,34 @@ const useStore = create((set, get) => ({
           )
           return {
             currentlyStreaming,
+            roomStreaming: toRoomStreaming(currentlyStreaming),
             isPaused: false,
             audioUnlocked: true,
           }
         }
         delete playingStreams[streamId]
+        const currentlyStreaming = state.currentlyStreaming.filter(
+          (e) => e.id !== streamId
+        )
         return {
           playingStreams,
           isPaused: false,
           audioUnlocked: true,
-          currentlyStreaming: state.currentlyStreaming.filter(
-            (e) => e.id !== streamId
-          ),
+          currentlyStreaming,
+          roomStreaming: toRoomStreaming(currentlyStreaming),
         }
       }
 
       playingStreams[streamId] = true
       const entry = streamToPlaybackEntry(stream)
       const without = state.currentlyStreaming.filter((e) => e.id !== streamId)
+      const currentlyStreaming = [...without, entry]
       return {
         playingStreams,
         isPaused: false,
         audioUnlocked: true,
-        currentlyStreaming: [...without, entry],
+        currentlyStreaming,
+        roomStreaming: toRoomStreaming(currentlyStreaming),
       }
     }),
 
@@ -432,6 +475,7 @@ const useStore = create((set, get) => ({
         return {
           playingStreams: {},
           currentlyStreaming: [],
+          roomStreaming: [],
           isPaused: false,
           audioUnlocked: true,
         }
@@ -444,16 +488,17 @@ const useStore = create((set, get) => ({
       return {
         playingStreams,
         currentlyStreaming: fading,
+        roomStreaming: toRoomStreaming(fading),
         isPaused: false,
         audioUnlocked: true,
       }
     }),
 
-  /** Called every ~100ms by FadeEngine (GM + players — local smooth fade) */
   tickFades: (dtSec) =>
     set((state) => {
       if (!state.currentlyStreaming.length) return state
       let changed = false
+      let structureChanged = false
       const playingStreams = { ...state.playingStreams }
       const next = []
 
@@ -464,6 +509,7 @@ const useStore = create((set, get) => ({
           const factor = Math.max(0, (entry.fadeFactor ?? 1) - dtSec / dur)
           if (factor <= 0.001) {
             delete playingStreams[entry.id]
+            structureChanged = true
             return
           }
           next.push({ ...entry, fadeFactor: factor, fadingIn: false })
@@ -488,7 +534,12 @@ const useStore = create((set, get) => ({
       })
 
       if (!changed) return state
-      return { currentlyStreaming: next, playingStreams }
+      const patch = { currentlyStreaming: next, playingStreams }
+      // Only push room when a stream fully ends (not every fade tick)
+      if (structureChanged) {
+        patch.roomStreaming = toRoomStreaming(next)
+      }
+      return patch
     }),
 
   setPaused: (value) => set({ isPaused: !!value }),
@@ -516,7 +567,9 @@ const useStore = create((set, get) => ({
     if (!data) return
     const remoteList = Array.isArray(data.currentlyStreaming)
       ? data.currentlyStreaming
-      : []
+      : Array.isArray(data.roomStreaming)
+        ? data.roomStreaming
+        : []
     const state = get()
     const localById = {}
     state.currentlyStreaming.forEach((e) => {
@@ -567,7 +620,6 @@ const useStore = create((set, get) => ({
       playingStreams[remote.id] = true
     })
 
-    // Finish local fade-outs even if GM already removed them from list
     state.currentlyStreaming.forEach((local) => {
       if (local.fadingOut && !playingStreams[local.id]) {
         merged.push(local)
@@ -575,12 +627,16 @@ const useStore = create((set, get) => ({
       }
     })
 
-    set({
+    const patch = {
       currentlyStreaming: merged,
       playingStreams,
       isPaused: !!data.isPaused,
       gmMuted: !!data.gmMuted,
-    })
+    }
+    if (typeof data.globalVolume === 'number') {
+      patch.roomGlobalVolume = clamp01(data.globalVolume)
+    }
+    set(patch)
   },
 
   exportData: () => {
@@ -604,6 +660,7 @@ const useStore = create((set, get) => ({
       folders,
       playingStreams: {},
       currentlyStreaming: [],
+      roomStreaming: [],
       isPaused: false,
       gmMuted: false,
       playbackErrors: {},
