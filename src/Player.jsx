@@ -12,7 +12,7 @@ function tracksFromState(state) {
     ;(stream.links || []).forEach((link) => {
       if (!link.url || !/youtu/i.test(link.url)) return
       list.push({
-        key: `${stream.id}::${link.id}`,
+        key: `\( {stream.id}:: \){link.id}`,
         streamId: stream.id,
         linkId: link.id,
         url: link.url,
@@ -39,8 +39,11 @@ function computeVolume(state, track) {
   ) {
     return 0
   }
+  const roomMaster =
+    typeof state.roomGlobalVolume === 'number' ? state.roomGlobalVolume : 1
+  const master = state.globalVolume * roomMaster
   return clamp01(
-    state.globalVolume *
+    master *
       (track.streamVolume ?? 0.7) *
       (track.linkVolume ?? 1) *
       (track.fadeFactor ?? 1)
@@ -55,19 +58,10 @@ function shouldPlay(state, track) {
   return true
 }
 
-/**
- * CRITICAL: YouTube iframes must NEVER unmount while others are playing.
- * Unmounting one player stops all other YouTube players in the same page.
- * We keep every seen track mounted forever; inactive = pause + volume 0.
- */
 export default function Player() {
-  // Keys only grow — never shrink (prevents iframe unmount)
   const [trackKeys, setTrackKeys] = useState([])
-  // key -> latest track snapshot (active true/false)
   const tracksRef = useRef(new Map())
-  // key -> { getInternal, ready }
   const playersRef = useRef(new Map())
-  // key -> last known url/loop for mount props
   const mountPropsRef = useRef(new Map())
 
   useEffect(() => {
@@ -75,13 +69,10 @@ export default function Player() {
       const activeList = tracksFromState(state)
       const activeMap = new Map(activeList.map((t) => [t.key, t]))
 
-      // Merge: keep old keys as inactive, update active ones
       const merged = new Map(tracksRef.current)
-      // Mark all previous as inactive first
       merged.forEach((t, key) => {
         merged.set(key, { ...t, active: false })
       })
-      // Overlay active tracks
       activeMap.forEach((t, key) => {
         merged.set(key, { ...t, active: true })
         if (!mountPropsRef.current.has(key)) {
@@ -90,7 +81,6 @@ export default function Player() {
       })
       tracksRef.current = merged
 
-      // Grow key list only
       const allKeys = Array.from(merged.keys()).sort()
       setTrackKeys((prev) => {
         if (
@@ -99,7 +89,6 @@ export default function Player() {
         ) {
           return prev
         }
-        // Preserve order of prev, append new
         const set = new Set(prev)
         const next = [...prev]
         allKeys.forEach((k) => {
@@ -108,7 +97,6 @@ export default function Player() {
         return next
       })
 
-      // Apply volume/play via iframe API for ALL mounted players
       merged.forEach((track, key) => {
         const slot = playersRef.current.get(key)
         if (!slot?.ready || !slot.getInternal) return
@@ -171,8 +159,6 @@ function MountedYouTube({ trackKey, url, loop, playersRef, tracksRef }) {
       getInternal: () => playerRef.current?.getInternalPlayer?.() ?? null,
     })
     return () => {
-      // Do NOT delete on unmount of parent re-order — only if component truly gone
-      // Parent never removes keys, so this cleanup only runs on extension close
       playersRef.current.delete(trackKey)
     }
   }, [trackKey, playersRef])
@@ -211,7 +197,6 @@ function MountedYouTube({ trackKey, url, loop, playersRef, tracksRef }) {
     <ReactPlayer
       ref={playerRef}
       url={url}
-      // Stable props — control via API only after ready
       playing={true}
       volume={1}
       muted={false}
