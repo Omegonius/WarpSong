@@ -82,6 +82,7 @@ function App() {
     applyRemoteState,
     exportData,
     importData,
+    commitRoomStreaming,
   } = useStore()
 
   useEffect(() => {
@@ -166,6 +167,7 @@ function App() {
 
   const goBack = () => {
     if (view === 'stream' || view === 'stream-visual') {
+      commitRoomStreaming()
       setActiveStreamId(null)
       setView('folder')
     } else if (view === 'folder-visual') {
