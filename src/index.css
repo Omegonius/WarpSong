@@ -687,3 +687,101 @@ button.danger {
 .app {
   position: relative;
 }
+
+/* WarpSong — compact + Tzeentch + Netlify clearance */
+.app {
+  padding-bottom: 40px;
+}
+
+.settings-block {
+  gap: 6px;
+  padding: 8px 10px 12px;
+}
+
+.settings-block input[type="range"] {
+  height: 4px;
+  margin: 2px 0 4px;
+}
+
+.settings-block input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+}
+
+.settings-block input[type="range"]::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+}
+
+.global-controls {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 10px;
+}
+
+.global-controls button,
+.topbar-actions button,
+.folder-toolbar button,
+.settings-block button,
+.links-header button,
+.back-btn,
+.player-view button {
+  background: linear-gradient(180deg, #3b2a6e 0%, #1a1235 100%);
+  border: 1px solid rgba(201, 162, 39, 0.4);
+  color: #f0e6c8;
+  padding: 5px 11px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12px;
+  box-shadow: 0 0 0 1px rgba(123, 92, 255, 0.12), 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.global-controls button:hover,
+.topbar-actions button:hover,
+.folder-toolbar button:hover,
+.settings-block button:hover,
+.back-btn:hover {
+  border-color: rgba(240, 230, 200, 0.55);
+  box-shadow: 0 0 12px rgba(123, 92, 255, 0.35);
+}
+
+button.active {
+  border-color: #c9a227;
+  color: #fff8e0;
+  box-shadow: 0 0 14px rgba(201, 162, 39, 0.4);
+}
+
+button.danger {
+  border-color: rgba(220, 80, 120, 0.55);
+  color: #ffc8d8;
+}
+
+.checkbox input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  border-radius: 4px;
+  border: 1px solid rgba(201, 162, 39, 0.45);
+  background: linear-gradient(180deg, #1a1235, #0c0a14);
+  cursor: pointer;
+  position: relative;
+}
+
+.checkbox input[type="checkbox"]:checked {
+  background: linear-gradient(145deg, #7b5cff, #c9a227);
+  border-color: rgba(240, 230, 200, 0.65);
+}
+
+.checkbox input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid #0c0a14;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
