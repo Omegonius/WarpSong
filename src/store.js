@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { clamp01, mapPlaybackLinks } from './playback.js'
 
 const defaultFolders = () => [
   {
@@ -218,41 +219,7 @@ const defaultFolders = () => [
       },
     ],
   },
-  {
-    id: 'folder-1',
-    name: 'Ambience',
-    color: '#7B5CFF',
-    emoji: '🌲',
-    collapsed: false,
-    streams: [
-      {
-        id: 'stream-1',
-        name: 'Forest',
-        emoji: '🌲',
-        color: '#5C7CFF',
-        volume: 0.7,
-        fadeOut: 3,
-        fadeIn: 0,
-        muted: false,
-        links: [
-          {
-            id: 'link-1',
-            url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-            volume: 1,
-            loop: true,
-            delay: 0,
-          },
-        ],
-      },
-    ],
-  },
 ]
-
-function clamp01(n) {
-  const x = Number(n)
-  if (Number.isNaN(x)) return 0
-  return Math.max(0, Math.min(1, x))
-}
 
 function sanitizeFolders(folders) {
   if (!Array.isArray(folders)) return null
@@ -286,7 +253,7 @@ function sanitizeFolders(folders) {
   }))
 }
 
-function streamToPlaybackEntry(stream) {
+function streamToPlaybackEntry(stream, prev) {
   const fadeIn = Math.max(0, Number(stream.fadeIn) || 0)
   const fadeOut = Math.max(0, Number(stream.fadeOut) || 0)
   return {
@@ -300,14 +267,8 @@ function streamToPlaybackEntry(stream) {
     fadeFactor: fadeIn > 0 ? 0 : 1,
     fadingIn: fadeIn > 0,
     fadingOut: false,
-    links: (stream.links || [])
-      .filter((l) => l.url)
-      .map((l) => ({
-        id: l.id,
-        url: l.url,
-        volume: l.volume ?? 1,
-        loop: l.loop !== false,
-      })),
+    startedAt: prev?.startedAt || Date.now(),
+    links: mapPlaybackLinks(stream.links),
   }
 }
 
@@ -323,13 +284,14 @@ export function toRoomStreaming(list) {
     fadeOut: s.fadeOut,
     fadingIn: !!s.fadingIn,
     fadingOut: !!s.fadingOut,
-    links: s.links || [],
+    startedAt: s.startedAt || null,
+    links: mapPlaybackLinks(s.links),
   }))
 }
 
 function findStream(folders, streamId) {
   for (const folder of folders) {
-    const stream = folder.streams.find((s) => s.id === streamId)
+    const stream = (folder.streams || []).find((s) => s.id === streamId)
     if (stream) return stream
   }
   return null
@@ -342,7 +304,7 @@ function rebuildFromFolders(folders, playingStreams, prevList = []) {
   })
   const list = []
   folders.forEach((folder) => {
-    folder.streams.forEach((stream) => {
+    ;(folder.streams || []).forEach((stream) => {
       if (!playingStreams[stream.id]) return
       const prev = prevById[stream.id]
       if (prev && (prev.fadingOut || prev.fadingIn)) {
@@ -354,20 +316,15 @@ function rebuildFromFolders(folders, playingStreams, prevList = []) {
           muted: !!stream.muted,
           fadeIn: Math.max(0, Number(stream.fadeIn) || 0),
           fadeOut: Math.max(0, Number(stream.fadeOut) || 0),
-          links: (stream.links || [])
-            .filter((l) => l.url)
-            .map((l) => ({
-              id: l.id,
-              url: l.url,
-              volume: l.volume ?? 1,
-              loop: l.loop !== false,
-            })),
+          startedAt: prev.startedAt,
+          links: mapPlaybackLinks(stream.links),
         })
       } else {
-        const entry = streamToPlaybackEntry(stream)
+        const entry = streamToPlaybackEntry(stream, prev)
         if (prev && !prev.fadingOut) {
           entry.fadeFactor = prev.fadeFactor ?? 1
           entry.fadingIn = false
+          entry.startedAt = prev.startedAt || entry.startedAt
         }
         list.push(entry)
       }
@@ -379,6 +336,67 @@ function rebuildFromFolders(folders, playingStreams, prevList = []) {
     }
   })
   return list
+}
+
+function mergeRemotePlayback(remoteList, localList) {
+  const localById = {}
+  localList.forEach((e) => {
+    localById[e.id] = e
+  })
+
+  const merged = []
+  const playingStreams = {}
+
+  remoteList.forEach((remote) => {
+    if (!remote || !remote.id) return
+    const local = localById[remote.id]
+    const fadingOut = !!remote.fadingOut
+    const fadingIn = !!remote.fadingIn
+
+    let fadeFactor = 1
+    if (local) {
+      if (fadingOut && local.fadingOut) {
+        fadeFactor = local.fadeFactor ?? 1
+      } else if (fadingOut && !local.fadingOut) {
+        fadeFactor = local.fadeFactor ?? 1
+      } else if (fadingIn && local.fadingIn) {
+        fadeFactor = local.fadeFactor ?? 0
+      } else if (fadingIn && !local.fadingIn) {
+        fadeFactor = 0
+      } else {
+        fadeFactor = 1
+      }
+    } else if (fadingIn) {
+      fadeFactor = 0
+    } else if (fadingOut) {
+      fadeFactor = 1
+    }
+
+    merged.push({
+      id: remote.id,
+      name: remote.name,
+      emoji: remote.emoji || '🎵',
+      volume: remote.volume ?? 0.7,
+      muted: !!remote.muted,
+      fadeIn: Math.max(0, Number(remote.fadeIn) || 0),
+      fadeOut: Math.max(0, Number(remote.fadeOut) || 0),
+      fadingIn,
+      fadingOut,
+      fadeFactor,
+      startedAt: remote.startedAt || local?.startedAt || Date.now(),
+      links: mapPlaybackLinks(remote.links),
+    })
+    playingStreams[remote.id] = true
+  })
+
+  localList.forEach((local) => {
+    if (local.fadingOut && !playingStreams[local.id]) {
+      merged.push(local)
+      playingStreams[local.id] = true
+    }
+  })
+
+  return { merged, playingStreams }
 }
 
 const useStore = create((set, get) => ({
@@ -553,7 +571,6 @@ const useStore = create((set, get) => ({
             }
           : folder
       )
-      // links with empty url ignored in playback; no room commit until Back
       const currentlyStreaming = state.playingStreams[streamId]
         ? rebuildFromFolders(
             folders,
@@ -665,7 +682,11 @@ const useStore = create((set, get) => ({
       }
 
       playingStreams[streamId] = true
-      const entry = streamToPlaybackEntry(stream)
+      const prev = state.currentlyStreaming.find((e) => e.id === streamId)
+      const entry = streamToPlaybackEntry(stream, null)
+      if (prev && prev.fadingOut) {
+        entry.startedAt = Date.now()
+      }
       const without = state.currentlyStreaming.filter((e) => e.id !== streamId)
       const currentlyStreaming = [...without, entry]
       return {
@@ -752,7 +773,6 @@ const useStore = create((set, get) => ({
 
       if (!changed) return state
       const patch = { currentlyStreaming: next, playingStreams }
-      // Only push room when a stream fully ends (not every fade tick)
       if (structureChanged) {
         patch.roomStreaming = toRoomStreaming(next)
       }
@@ -766,9 +786,10 @@ const useStore = create((set, get) => ({
   setGlobalVolume: (value) => set({ globalVolume: clamp01(value) }),
 
   setPlaybackError: (key, message) =>
-    set((state) => ({
-      playbackErrors: { ...state.playbackErrors, [key]: message },
-    })),
+    set((state) => {
+      if (state.playbackErrors[key] === message) return state
+      return { playbackErrors: { ...state.playbackErrors, [key]: message } }
+    }),
 
   clearPlaybackError: (key) =>
     set((state) => {
@@ -780,7 +801,13 @@ const useStore = create((set, get) => ({
 
   clearAllPlaybackErrors: () => set({ playbackErrors: {} }),
 
-  applyRemoteState: (data) => {
+  /**
+   * Apply room metadata.
+   * Players: playback + GM pause/mute + room master volume.
+   * Never overwrites localMuted or the player's local globalVolume.
+   * opts.hydrateMaster (GM F5): also restore GM mixer + roomStreaming snapshot.
+   */
+  applyRemoteState: (data, opts = {}) => {
     if (!data) return
     const remoteList = Array.isArray(data.currentlyStreaming)
       ? data.currentlyStreaming
@@ -788,61 +815,10 @@ const useStore = create((set, get) => ({
         ? data.roomStreaming
         : []
     const state = get()
-    const localById = {}
-    state.currentlyStreaming.forEach((e) => {
-      localById[e.id] = e
-    })
-
-    const merged = []
-    const playingStreams = {}
-
-    remoteList.forEach((remote) => {
-      if (!remote || !remote.id) return
-      const local = localById[remote.id]
-      const fadingOut = !!remote.fadingOut
-      const fadingIn = !!remote.fadingIn
-
-      let fadeFactor = 1
-      if (local) {
-        if (fadingOut && local.fadingOut) {
-          fadeFactor = local.fadeFactor ?? 1
-        } else if (fadingOut && !local.fadingOut) {
-          fadeFactor = local.fadeFactor ?? 1
-        } else if (fadingIn && local.fadingIn) {
-          fadeFactor = local.fadeFactor ?? 0
-        } else if (fadingIn && !local.fadingIn) {
-          fadeFactor = 0
-        } else {
-          fadeFactor = 1
-        }
-      } else if (fadingIn) {
-        fadeFactor = 0
-      } else if (fadingOut) {
-        fadeFactor = 1
-      }
-
-      merged.push({
-        id: remote.id,
-        name: remote.name,
-        emoji: remote.emoji || '🎵',
-        volume: remote.volume ?? 0.7,
-        muted: !!remote.muted,
-        fadeIn: Math.max(0, Number(remote.fadeIn) || 0),
-        fadeOut: Math.max(0, Number(remote.fadeOut) || 0),
-        fadingIn,
-        fadingOut,
-        fadeFactor,
-        links: Array.isArray(remote.links) ? remote.links : [],
-      })
-      playingStreams[remote.id] = true
-    })
-
-    state.currentlyStreaming.forEach((local) => {
-      if (local.fadingOut && !playingStreams[local.id]) {
-        merged.push(local)
-        playingStreams[local.id] = true
-      }
-    })
+    const { merged, playingStreams } = mergeRemotePlayback(
+      remoteList,
+      state.currentlyStreaming
+    )
 
     const patch = {
       currentlyStreaming: merged,
@@ -850,9 +826,17 @@ const useStore = create((set, get) => ({
       isPaused: !!data.isPaused,
       gmMuted: !!data.gmMuted,
     }
-    if (typeof data.globalVolume === 'number') {
+
+    if (opts.hydrateMaster) {
+      if (typeof data.globalVolume === 'number') {
+        patch.globalVolume = clamp01(data.globalVolume)
+      }
+      patch.roomGlobalVolume = 1
+      patch.roomStreaming = toRoomStreaming(merged)
+    } else if (typeof data.globalVolume === 'number') {
       patch.roomGlobalVolume = clamp01(data.globalVolume)
     }
+
     set(patch)
   },
 
@@ -880,6 +864,7 @@ const useStore = create((set, get) => ({
       roomStreaming: [],
       isPaused: false,
       gmMuted: false,
+      isLocalOnly: false,
       playbackErrors: {},
     })
     return { ok: true }
