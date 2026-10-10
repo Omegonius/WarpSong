@@ -1,40 +1,45 @@
 import { useEffect, useRef } from 'react'
 import OBR from '@owlbear-rodeo/sdk'
-import useStore from './store'
+import useStore, { toRoomStreaming } from './store'
 
-function serializeRoom(list) {
-  return (list || []).map((s) => ({
-    id: s.id,
-    name: s.name,
-    emoji: s.emoji,
-    volume: s.volume,
-    muted: !!s.muted,
-    fadeIn: s.fadeIn,
-    fadeOut: s.fadeOut,
-    fadingIn: !!s.fadingIn,
-    fadingOut: !!s.fadingOut,
-    links: s.links || [],
-  }))
-}
-
-/** Play/stop/pause/mute — faster debounce */
 function structurePayload(state) {
   return JSON.stringify({
     isPaused: !!state.isPaused,
     gmMuted: !!state.gmMuted,
     isLocalOnly: !!state.isLocalOnly,
-    currentlyStreaming: serializeRoom(state.roomStreaming),
+    currentlyStreaming: toRoomStreaming(state.roomStreaming),
+  })
+}
+
+function writeMetadata(payload) {
+  return OBR.room.setMetadata({
+    warpsong: payload,
   })
 }
 
 export default function MetadataSync({ enabled }) {
   const lastStructure = useRef('')
   const lastGlobal = useRef(null)
+  const lastLocalOnly = useRef(false)
   const structureTimer = useRef(null)
   const globalTimer = useRef(null)
 
   useEffect(() => {
     if (!enabled) return
+
+    const clearTimers = () => {
+      if (structureTimer.current) clearTimeout(structureTimer.current)
+      if (globalTimer.current) clearTimeout(globalTimer.current)
+      structureTimer.current = null
+      globalTimer.current = null
+    }
+
+    const roomPayload = (state, streaming) => ({
+      isPaused: !!state.isPaused,
+      gmMuted: !!state.gmMuted,
+      currentlyStreaming: toRoomStreaming(streaming),
+      globalVolume: state.globalVolume,
+    })
 
     const flushStructure = () => {
       const latest = useStore.getState()
@@ -42,19 +47,9 @@ export default function MetadataSync({ enabled }) {
       const json = structurePayload(latest)
       if (json === lastStructure.current) return
       lastStructure.current = json
+      lastGlobal.current = latest.globalVolume
       try {
-        OBR.room.setMetadata({
-          warpsong: {
-            isPaused: !!latest.isPaused,
-            gmMuted: !!latest.gmMuted,
-            currentlyStreaming: serializeRoom(latest.roomStreaming),
-            // keep last known global if any; global flush may patch separately
-            globalVolume:
-              lastGlobal.current != null
-                ? lastGlobal.current
-                : latest.globalVolume,
-          },
-        })
+        writeMetadata(roomPayload(latest, latest.roomStreaming))
       } catch (err) {
         console.warn('WarpSong metadata failed', err)
       }
@@ -67,39 +62,58 @@ export default function MetadataSync({ enabled }) {
       if (g === lastGlobal.current) return
       lastGlobal.current = g
       try {
-        OBR.room.setMetadata({
-          warpsong: {
-            isPaused: !!latest.isPaused,
-            gmMuted: !!latest.gmMuted,
-            currentlyStreaming: serializeRoom(latest.roomStreaming),
-            globalVolume: g,
-          },
-        })
+        writeMetadata(roomPayload(latest, latest.roomStreaming))
       } catch (err) {
         console.warn('WarpSong metadata global failed', err)
       }
     }
 
+    const pushLocalOnlySilence = (state) => {
+      lastStructure.current = ''
+      lastGlobal.current = state.globalVolume
+      try {
+        writeMetadata({
+          isPaused: !!state.isPaused,
+          gmMuted: !!state.gmMuted,
+          currentlyStreaming: [],
+          globalVolume: state.globalVolume,
+        })
+      } catch (err) {
+        console.warn('WarpSong metadata local-only failed', err)
+      }
+    }
+
     const unsub = useStore.subscribe((state) => {
-      if (state.isLocalOnly) return
+      if (state.isLocalOnly) {
+        clearTimers()
+        if (!lastLocalOnly.current) {
+          lastLocalOnly.current = true
+          pushLocalOnlySilence(state)
+        }
+        return
+      }
+
+      const leftLocalOnly = lastLocalOnly.current
+      lastLocalOnly.current = false
 
       const struct = structurePayload(state)
-      if (struct !== lastStructure.current) {
+      if (leftLocalOnly || struct !== lastStructure.current) {
         if (structureTimer.current) clearTimeout(structureTimer.current)
-        structureTimer.current = setTimeout(flushStructure, 100)
+        structureTimer.current = setTimeout(
+          flushStructure,
+          leftLocalOnly ? 0 : 100
+        )
       }
 
       if (state.globalVolume !== lastGlobal.current) {
         if (globalTimer.current) clearTimeout(globalTimer.current)
-        // Checklist: global volume → players with 300–500ms debounce
         globalTimer.current = setTimeout(flushGlobal, 400)
       }
     })
 
     return () => {
       unsub()
-      if (structureTimer.current) clearTimeout(structureTimer.current)
-      if (globalTimer.current) clearTimeout(globalTimer.current)
+      clearTimers()
     }
   }, [enabled])
 
