@@ -23,22 +23,26 @@ const STREAM_EMOJIS = [
 
 function ErrorBanner() {
   const playbackErrors = useStore((s) => s.playbackErrors)
-  const clearPlaybackError = useStore((s) => s.clearPlaybackError)
-  const clearAllPlaybackErrors = useStore((s) => s.clearAllPlaybackErrors)
   const entries = Object.entries(playbackErrors || {})
   if (!entries.length) return null
   return (
     <div className="error-banner">
       <div className="error-banner-head">
         <strong>Playback errors</strong>
-        <button type="button" onClick={clearAllPlaybackErrors}>
+        <button
+          type="button"
+          onClick={() => useStore.getState().clearAllPlaybackErrors()}
+        >
           Clear all
         </button>
       </div>
       {entries.map(([key, msg]) => (
         <div key={key} className="error-item">
           <span>{msg}</span>
-          <button type="button" onClick={() => clearPlaybackError(key)}>
+          <button
+            type="button"
+            onClick={() => useStore.getState().clearPlaybackError(key)}
+          >
             ×
           </button>
         </div>
@@ -54,58 +58,43 @@ function App() {
   const [activeFolderId, setActiveFolderId] = useState(null)
   const [activeStreamId, setActiveStreamId] = useState(null)
 
-  const {
-    folders,
-    playingStreams,
-    currentlyStreaming,
-    isPaused,
-    isLocalOnly,
-    globalVolume,
-    gmMuted,
-    localMuted,
-    toggleStream,
-    stopAll,
-    setPaused,
-    setLocalOnly,
-    setGlobalVolume,
-    setGmMuted,
-    setLocalMuted,
-    addFolder,
-    updateFolder,
-    deleteFolder,
-    addStream,
-    updateStream,
-    deleteStream,
-    addLink,
-    updateLink,
-    deleteLink,
-    applyRemoteState,
-    exportData,
-    importData,
-    commitRoomStreaming,
-  } = useStore()
+  const folders = useStore((s) => s.folders)
+  const playingStreams = useStore((s) => s.playingStreams)
+  const currentlyStreaming = useStore((s) => s.currentlyStreaming)
+  const isPaused = useStore((s) => s.isPaused)
+  const isLocalOnly = useStore((s) => s.isLocalOnly)
+  const globalVolume = useStore((s) => s.globalVolume)
+  const gmMuted = useStore((s) => s.gmMuted)
+  const localMuted = useStore((s) => s.localMuted)
 
   useEffect(() => {
     OBR.onReady(async () => {
-      setReady(true)
       const playerRole = await OBR.player.getRole()
-      setRole(playerRole)
 
       OBR.room.onMetadataChange((metadata) => {
         if (playerRole === 'GM') return
         const data = metadata['warpsong']
-        if (data) applyRemoteState(data)
+        if (data) useStore.getState().applyRemoteState(data)
       })
 
-      if (playerRole !== 'GM') {
+      try {
         const current = await OBR.room.getMetadata()
-        if (current['warpsong']) applyRemoteState(current['warpsong'])
+        if (current['warpsong']) {
+          useStore.getState().applyRemoteState(current['warpsong'], {
+            hydrateMaster: playerRole === 'GM',
+          })
+        }
+      } catch (err) {
+        console.warn('WarpSong getMetadata failed', err)
       }
+
+      setRole(playerRole)
+      setReady(true)
     })
   }, [])
 
   const handleSave = () => {
-    const data = exportData()
+    const data = useStore.getState().exportData()
     const blob = new Blob([JSON.stringify(data, null, 2)], {
       type: 'application/json',
     })
@@ -128,7 +117,7 @@ function App() {
       reader.onload = () => {
         try {
           const parsed = JSON.parse(reader.result)
-          const result = importData(parsed)
+          const result = useStore.getState().importData(parsed)
           if (!result.ok) alert(result.error || 'Invalid file')
           else {
             setView('home')
@@ -167,7 +156,7 @@ function App() {
 
   const goBack = () => {
     if (view === 'stream' || view === 'stream-visual') {
-      commitRoomStreaming()
+      useStore.getState().commitRoomStreaming()
       setActiveStreamId(null)
       setView('folder')
     } else if (view === 'folder-visual') {
@@ -182,7 +171,7 @@ function App() {
     !!playingStreams[streamId] ||
     currentlyStreaming.some((e) => e.id === streamId)
 
-  if (!ready) {
+  if (!ready || !role) {
     return <div className="loading">Loading WarpSong…</div>
   }
 
@@ -209,6 +198,7 @@ function App() {
                 {currentlyStreaming.map((s) => (
                   <li key={s.id}>
                     {s.emoji || '🎵'} {s.name}
+                    {s.fadingIn ? ' (fade in)' : ''}
                     {s.fadingOut ? ' (fade out)' : ''}
                     {s.muted ? ' (muted)' : ''}
                   </li>
@@ -226,10 +216,15 @@ function App() {
               max="1"
               step="0.01"
               value={globalVolume}
-              onChange={(e) => setGlobalVolume(Number(e.target.value))}
+              onChange={(e) =>
+                useStore.getState().setGlobalVolume(Number(e.target.value))
+              }
             />
           </label>
-          <button onClick={() => setLocalMuted(!localMuted)}>
+          <button
+            type="button"
+            onClick={() => useStore.getState().setLocalMuted(!localMuted)}
+          >
             {localMuted ? 'Unmute (local)' : 'Mute (local)'}
           </button>
         </div>
@@ -240,7 +235,7 @@ function App() {
 
   return (
     <div className="app">
-      <MetadataSync enabled={role === 'GM'} />
+      <MetadataSync enabled />
       <FadeEngine />
       <AutoplayUnlock />
       <div className="topbar">
@@ -271,9 +266,11 @@ function App() {
 
         {view === 'home' && (
           <div className="topbar-actions">
-            <button onClick={handleLoad}>Load</button>
-            <button onClick={handleSave}>Save</button>
-            <button onClick={() => addFolder()}>+ Folder</button>
+            <button type="button" onClick={handleLoad}>Load</button>
+            <button type="button" onClick={handleSave}>Save</button>
+            <button type="button" onClick={() => useStore.getState().addFolder()}>
+              + Folder
+            </button>
           </div>
         )}
       </div>
@@ -282,15 +279,21 @@ function App() {
 
       <div className="global-controls">
         <button
+          type="button"
           className={isLocalOnly ? 'active' : ''}
-          onClick={() => setLocalOnly(!isLocalOnly)}
+          onClick={() => useStore.getState().setLocalOnly(!isLocalOnly)}
         >
           {isLocalOnly ? 'Local' : 'Shared'}
         </button>
-        <button onClick={() => setPaused(!isPaused)}>
+        <button
+          type="button"
+          onClick={() => useStore.getState().setPaused(!isPaused)}
+        >
           {isPaused ? 'Resume' : 'Pause'}
         </button>
-        <button onClick={stopAll}>Stop</button>
+        <button type="button" onClick={() => useStore.getState().stopAll()}>
+          Stop
+        </button>
         <label className="volume">
           Vol
           <input
@@ -299,12 +302,15 @@ function App() {
             max="1"
             step="0.01"
             value={globalVolume}
-            onChange={(e) => setGlobalVolume(Number(e.target.value))}
+            onChange={(e) =>
+              useStore.getState().setGlobalVolume(Number(e.target.value))
+            }
           />
         </label>
         <button
+          type="button"
           className={gmMuted ? 'active' : ''}
-          onClick={() => setGmMuted(!gmMuted)}
+          onClick={() => useStore.getState().setGmMuted(!gmMuted)}
           title="Mutes everyone (synced)"
         >
           {gmMuted ? 'Unmute' : 'Mute'}
@@ -323,22 +329,16 @@ function App() {
                 className={`tile folder-tile ${folderPlaying ? 'has-playing' : ''}`}
                 style={{ borderColor: folder.color || '#7B5CFF' }}
               >
-                <div
-                  className="tile-main"
-                  onClick={() => openFolder(folder.id)}
-                >
+                <div className="tile-main" onClick={() => openFolder(folder.id)}>
                   <div className="tile-emoji">{folder.emoji || '📁'}</div>
                   <div className="tile-name">{folder.name}</div>
-                  <div className="tile-meta">
-                    {folder.streams.length} streams
-                  </div>
+                  <div className="tile-meta">{folder.streams.length} streams</div>
                 </div>
                 {folderPlaying && (
-                  <div className="tile-playing-badge" title="Playing">
-                    🔊
-                  </div>
+                  <div className="tile-playing-badge" title="Playing">🔊</div>
                 )}
                 <button
+                  type="button"
                   className="tile-settings"
                   title="Folder look"
                   onClick={(e) => {
@@ -352,7 +352,7 @@ function App() {
               </div>
             )
           })}
-          <div className="tile add-tile" onClick={() => addFolder()}>
+          <div className="tile add-tile" onClick={() => useStore.getState().addFolder()}>
             <div className="tile-emoji">＋</div>
             <div className="tile-name">New Folder</div>
           </div>
@@ -369,18 +369,19 @@ function App() {
               className="inline-input"
               value={activeFolder.name}
               onChange={(e) =>
-                updateFolder(activeFolder.id, { name: e.target.value })
+                useStore.getState().updateFolder(activeFolder.id, {
+                  name: e.target.value,
+                })
               }
               placeholder="Folder name"
             />
-            <button type="button" onClick={openFolderVisual}>
-              Look
-            </button>
+            <button type="button" onClick={openFolderVisual}>Look</button>
             <button
+              type="button"
               className="danger"
               onClick={() => {
                 if (window.confirm(`Delete folder "${activeFolder.name}"?`)) {
-                  deleteFolder(activeFolder.id)
+                  useStore.getState().deleteFolder(activeFolder.id)
                   setView('home')
                   setActiveFolderId(null)
                 }
@@ -389,7 +390,6 @@ function App() {
               Delete
             </button>
           </div>
-
           <div className="grid">
             {activeFolder.streams.map((stream) => {
               const isPlaying = streamIsActive(stream.id)
@@ -401,11 +401,11 @@ function App() {
                   key={stream.id}
                   className={`tile stream-tile ${isPlaying ? 'playing' : ''}`}
                   style={{
-                    borderColor:
-                      stream.color || (isPlaying ? '#C9A227' : '#3a2f6b'),
+                    borderColor: stream.color || (isPlaying ? '#C9A227' : '#3a2f6b'),
                   }}
                 >
                   <button
+                    type="button"
                     className="tile-visual"
                     title="Stream look"
                     onClick={(e) => {
@@ -417,7 +417,7 @@ function App() {
                   </button>
                   <div
                     className="tile-main"
-                    onClick={() => toggleStream(stream.id)}
+                    onClick={() => useStore.getState().toggleStream(stream.id)}
                   >
                     <div className="tile-emoji">
                       {fading ? '🔉' : isPlaying ? '🔊' : stream.emoji || '🎵'}
@@ -425,11 +425,11 @@ function App() {
                     <div className="tile-name">{stream.name}</div>
                     <div className="tile-meta">
                       {stream.muted ? 'muted · ' : ''}
-                      {stream.links.length} link
-                      {stream.links.length === 1 ? '' : 's'}
+                      {stream.links.length} link{stream.links.length === 1 ? '' : 's'}
                     </div>
                   </div>
                   <button
+                    type="button"
                     className="tile-settings"
                     title="Sound & links"
                     onClick={(e) => {
@@ -444,7 +444,7 @@ function App() {
             })}
             <div
               className="tile add-tile"
-              onClick={() => addStream(activeFolder.id)}
+              onClick={() => useStore.getState().addStream(activeFolder.id)}
             >
               <div className="tile-emoji">＋</div>
               <div className="tile-name">New Stream</div>
@@ -464,7 +464,9 @@ function App() {
                   value={activeFolder.emoji || '📁'}
                   maxLength={4}
                   onChange={(e) =>
-                    updateFolder(activeFolder.id, { emoji: e.target.value })
+                    useStore.getState().updateFolder(activeFolder.id, {
+                      emoji: e.target.value,
+                    })
                   }
                 />
                 <div className="emoji-presets">
@@ -476,7 +478,9 @@ function App() {
                         activeFolder.emoji === em ? 'selected' : ''
                       }`}
                       onClick={() =>
-                        updateFolder(activeFolder.id, { emoji: em })
+                        useStore.getState().updateFolder(activeFolder.id, {
+                          emoji: em,
+                        })
                       }
                     >
                       {em}
@@ -491,7 +495,9 @@ function App() {
                 type="color"
                 value={activeFolder.color || '#7B5CFF'}
                 onChange={(e) =>
-                  updateFolder(activeFolder.id, { color: e.target.value })
+                  useStore.getState().updateFolder(activeFolder.id, {
+                    color: e.target.value,
+                  })
                 }
               />
             </label>
@@ -507,7 +513,7 @@ function App() {
               <input
                 value={activeStream.name}
                 onChange={(e) =>
-                  updateStream(activeFolder.id, activeStream.id, {
+                  useStore.getState().updateStream(activeFolder.id, activeStream.id, {
                     name: e.target.value,
                   })
                 }
@@ -522,7 +528,7 @@ function App() {
                 step="0.01"
                 value={activeStream.volume}
                 onChange={(e) =>
-                  updateStream(activeFolder.id, activeStream.id, {
+                  useStore.getState().updateStream(activeFolder.id, activeStream.id, {
                     volume: Number(e.target.value),
                   })
                 }
@@ -533,7 +539,7 @@ function App() {
                 type="checkbox"
                 checked={!!activeStream.muted}
                 onChange={(e) =>
-                  updateStream(activeFolder.id, activeStream.id, {
+                  useStore.getState().updateStream(activeFolder.id, activeStream.id, {
                     muted: e.target.checked,
                   })
                 }
@@ -549,7 +555,7 @@ function App() {
                   step="0.5"
                   value={activeStream.fadeIn}
                   onChange={(e) =>
-                    updateStream(activeFolder.id, activeStream.id, {
+                    useStore.getState().updateStream(activeFolder.id, activeStream.id, {
                       fadeIn: Number(e.target.value),
                     })
                   }
@@ -563,7 +569,7 @@ function App() {
                   step="0.5"
                   value={activeStream.fadeOut}
                   onChange={(e) =>
-                    updateStream(activeFolder.id, activeStream.id, {
+                    useStore.getState().updateStream(activeFolder.id, activeStream.id, {
                       fadeOut: Number(e.target.value),
                     })
                   }
@@ -571,10 +577,11 @@ function App() {
               </label>
             </div>
             <button
+              type="button"
               className="danger"
               onClick={() => {
                 if (window.confirm(`Delete stream "${activeStream.name}"?`)) {
-                  deleteStream(activeFolder.id, activeStream.id)
+                  useStore.getState().deleteStream(activeFolder.id, activeStream.id)
                   setView('folder')
                   setActiveStreamId(null)
                 }
@@ -587,7 +594,12 @@ function App() {
           <div className="settings-block">
             <div className="links-header">
               <strong>Sources (YouTube)</strong>
-              <button onClick={() => addLink(activeFolder.id, activeStream.id)}>
+              <button
+                type="button"
+                onClick={() =>
+                  useStore.getState().addLink(activeFolder.id, activeStream.id)
+                }
+              >
                 + Link
               </button>
             </div>
@@ -596,9 +608,14 @@ function App() {
                 <div className="link-top">
                   <span>#{index + 1}</span>
                   <button
+                    type="button"
                     className="danger-text"
                     onClick={() =>
-                      deleteLink(activeFolder.id, activeStream.id, link.id)
+                      useStore.getState().deleteLink(
+                        activeFolder.id,
+                        activeStream.id,
+                        link.id
+                      )
                     }
                   >
                     ×
@@ -609,9 +626,12 @@ function App() {
                   placeholder="https://youtube.com/watch?v=..."
                   value={link.url}
                   onChange={(e) =>
-                    updateLink(activeFolder.id, activeStream.id, link.id, {
-                      url: e.target.value,
-                    })
+                    useStore.getState().updateLink(
+                      activeFolder.id,
+                      activeStream.id,
+                      link.id,
+                      { url: e.target.value }
+                    )
                   }
                 />
                 <label>
@@ -623,9 +643,12 @@ function App() {
                     step="0.01"
                     value={link.volume ?? 1}
                     onChange={(e) =>
-                      updateLink(activeFolder.id, activeStream.id, link.id, {
-                        volume: Number(e.target.value),
-                      })
+                      useStore.getState().updateLink(
+                        activeFolder.id,
+                        activeStream.id,
+                        link.id,
+                        { volume: Number(e.target.value) }
+                      )
                     }
                   />
                 </label>
@@ -634,9 +657,12 @@ function App() {
                     type="checkbox"
                     checked={!!link.loop}
                     onChange={(e) =>
-                      updateLink(activeFolder.id, activeStream.id, link.id, {
-                        loop: e.target.checked,
-                      })
+                      useStore.getState().updateLink(
+                        activeFolder.id,
+                        activeStream.id,
+                        link.id,
+                        { loop: e.target.checked }
+                      )
                     }
                   />
                   Loop
@@ -661,7 +687,7 @@ function App() {
                   value={activeStream.emoji || '🎵'}
                   maxLength={4}
                   onChange={(e) =>
-                    updateStream(activeFolder.id, activeStream.id, {
+                    useStore.getState().updateStream(activeFolder.id, activeStream.id, {
                       emoji: e.target.value,
                     })
                   }
@@ -675,9 +701,11 @@ function App() {
                         activeStream.emoji === em ? 'selected' : ''
                       }`}
                       onClick={() =>
-                        updateStream(activeFolder.id, activeStream.id, {
-                          emoji: em,
-                        })
+                        useStore.getState().updateStream(
+                          activeFolder.id,
+                          activeStream.id,
+                          { emoji: em }
+                        )
                       }
                     >
                       {em}
@@ -692,7 +720,7 @@ function App() {
                 type="color"
                 value={activeStream.color || '#5C7CFF'}
                 onChange={(e) =>
-                  updateStream(activeFolder.id, activeStream.id, {
+                  useStore.getState().updateStream(activeFolder.id, activeStream.id, {
                     color: e.target.value,
                   })
                 }
