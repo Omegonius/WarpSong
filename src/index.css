@@ -22,6 +22,8 @@ html, body, #root {
   flex-direction: column;
   height: 100%;
   background: linear-gradient(180deg, rgba(20, 12, 40, 0.4), transparent 40%);
+  position: relative;
+  padding-bottom: 40px;
 }
 
 .loading {
@@ -32,7 +34,6 @@ html, body, #root {
   letter-spacing: 0.04em;
 }
 
-/* ========== RANGE SLIDERS (desktop + mobile) ========== */
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
@@ -50,14 +51,12 @@ input[type="range"] {
   border: 1px solid rgba(167, 139, 250, 0.25);
 }
 
-/* WebKit track */
 input[type="range"]::-webkit-slider-runnable-track {
   height: 6px;
   border-radius: 999px;
   background: rgba(84, 81, 107, 0.95);
 }
 
-/* WebKit thumb */
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -79,7 +78,6 @@ input[type="range"]:active::-webkit-slider-thumb {
   transform: scale(1.08);
 }
 
-/* Firefox track */
 input[type="range"]::-moz-range-track {
   height: 6px;
   border-radius: 999px;
@@ -93,7 +91,6 @@ input[type="range"]::-moz-range-progress {
   background: linear-gradient(90deg, #7b5cff, #c9a227);
 }
 
-/* Firefox thumb */
 input[type="range"]::-moz-range-thumb {
   width: 14px;
   height: 14px;
@@ -104,13 +101,11 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 
-/* compact top bar volume */
 .global-controls input[type="range"] {
   width: 90px;
   min-width: 90px;
 }
 
-/* ========== TOP BAR ========== */
 .topbar {
   display: flex;
   align-items: center;
@@ -167,35 +162,39 @@ input[type="range"]::-moz-range-thumb {
 .global-controls button,
 .folder-toolbar button,
 .settings-block button,
-.links-header button {
-  background: linear-gradient(180deg, #2a1f4a, #1a1430);
-  border: 1px solid rgba(167, 139, 250, 0.35);
-  color: #e8e4f5;
-  padding: 5px 10px;
-  border-radius: 6px;
+.links-header button,
+.back-btn,
+.player-view button {
+  background: linear-gradient(180deg, #3b2a6e 0%, #1a1235 100%);
+  border: 1px solid rgba(201, 162, 39, 0.4);
+  color: #f0e6c8;
+  padding: 5px 11px;
+  border-radius: 7px;
   cursor: pointer;
   font-size: 12px;
+  box-shadow: 0 0 0 1px rgba(123, 92, 255, 0.12), 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
 .topbar-actions button:hover,
 .global-controls button:hover,
 .folder-toolbar button:hover,
-.settings-block button:hover {
-  border-color: rgba(201, 162, 39, 0.55);
-  background: linear-gradient(180deg, #3a2a60, #241a40);
+.settings-block button:hover,
+.back-btn:hover {
+  border-color: rgba(240, 230, 200, 0.55);
+  box-shadow: 0 0 12px rgba(123, 92, 255, 0.35);
 }
 
 button.active {
   background: linear-gradient(180deg, #3d2a6b, #2a1848);
   border-color: #c9a227;
-  color: #f5e6b8;
-  box-shadow: 0 0 10px rgba(123, 92, 255, 0.25);
+  color: #fff8e0;
+  box-shadow: 0 0 14px rgba(201, 162, 39, 0.4);
 }
 
 button.danger {
   background: linear-gradient(180deg, #3a1828, #2a1018);
-  border-color: #8b3a4a;
-  color: #ffb4c0;
+  border-color: rgba(220, 80, 120, 0.55);
+  color: #ffc8d8;
 }
 
 .danger-text {
@@ -206,16 +205,15 @@ button.danger {
   font-size: 16px;
 }
 
-/* ========== GLOBAL CONTROLS ========== */
 .global-controls {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid rgba(90, 70, 140, 0.35);
   background: rgba(15, 10, 30, 0.45);
   flex-shrink: 0;
-  flex-wrap: wrap;
 }
 
 .global-controls .volume {
@@ -226,7 +224,6 @@ button.danger {
   color: #c4b5fd;
 }
 
-/* ========== GRID / TILES ========== */
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
@@ -257,10 +254,6 @@ button.danger {
 .tile:hover {
   background: linear-gradient(160deg, rgba(50, 35, 90, 0.98), rgba(25, 18, 50, 1));
   box-shadow: 0 0 12px rgba(123, 92, 255, 0.2);
-}
-
-.folder-tile {
-  border-width: 2px;
 }
 
 .folder-tile.has-playing {
@@ -363,7 +356,6 @@ button.danger {
   z-index: 2;
 }
 
-/* ========== SCREENS ========== */
 .folder-screen,
 .stream-screen {
   flex: 1;
@@ -404,13 +396,12 @@ button.danger {
   font-size: 18px;
 }
 
-/* ========== SETTINGS ========== */
 .settings-block {
-  padding: 12px;
+  padding: 8px 10px 12px;
   border-bottom: 1px solid rgba(90, 70, 140, 0.3);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
 
 .settings-block label {
@@ -440,6 +431,21 @@ button.danger {
   background: rgba(20, 15, 40, 0.9);
   cursor: pointer;
   padding: 2px;
+}
+
+.settings-block input[type="range"] {
+  height: 4px;
+  margin: 2px 0 4px;
+}
+
+.settings-block input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+}
+
+.settings-block input[type="range"]::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
 }
 
 .two-columns {
@@ -489,6 +495,48 @@ button.danger {
   gap: 6px !important;
 }
 
+.checkbox input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  border-radius: 4px;
+  border: 1px solid rgba(201, 162, 39, 0.45);
+  background: linear-gradient(180deg, #1a1235, #0c0a14);
+  cursor: pointer;
+  position: relative;
+}
+
+.checkbox input[type="checkbox"]:checked {
+  background: linear-gradient(145deg, #7b5cff, #c9a227);
+  border-color: rgba(240, 230, 200, 0.65);
+}
+
+.checkbox input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid #0c0a14;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* YouTube iframes must not be display:none or 0×0 — API often refuses to start */
+.yt-offscreen {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  left: -9999px;
+  bottom: 0;
+}
+
 .empty-hint {
   padding: 20px;
   text-align: center;
@@ -498,21 +546,17 @@ button.danger {
 }
 
 .player-view {
-  padding: 16px;
+  padding: 16px 16px 8px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow-y: auto;
+  flex: 1;
 }
 
 .player-hint {
   color: #c4b5fd;
   font-size: 13px;
-}
-
-.autoplay-hint {
-  font-size: 11px;
-  color: #8b7ab8;
-  margin-top: 4px;
 }
 
 .control-row {
@@ -585,7 +629,6 @@ button.danger {
   box-shadow: 0 0 8px rgba(123, 92, 255, 0.35);
 }
 
-/* ========== ERRORS / STATUS ========== */
 .error-banner {
   flex-shrink: 0;
   padding: 8px 12px;
@@ -635,7 +678,6 @@ button.danger {
   font-size: 11px;
 }
 
-/* ========== AUTOPLAY UNLOCK ========== */
 .autoplay-unlock {
   position: absolute;
   inset: 0;
@@ -682,106 +724,4 @@ button.danger {
 
 .autoplay-unlock-btn:hover {
   box-shadow: 0 0 12px rgba(123, 92, 255, 0.4);
-}
-
-.app {
-  position: relative;
-}
-
-/* WarpSong — compact + Tzeentch + Netlify clearance */
-.app {
-  padding-bottom: 40px;
-}
-
-.settings-block {
-  gap: 6px;
-  padding: 8px 10px 12px;
-}
-
-.settings-block input[type="range"] {
-  height: 4px;
-  margin: 2px 0 4px;
-}
-
-.settings-block input[type="range"]::-webkit-slider-runnable-track {
-  height: 4px;
-}
-
-.settings-block input[type="range"]::-webkit-slider-thumb {
-  width: 12px;
-  height: 12px;
-  margin-top: -4px;
-}
-
-.global-controls {
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 6px 10px;
-}
-
-.global-controls button,
-.topbar-actions button,
-.folder-toolbar button,
-.settings-block button,
-.links-header button,
-.back-btn,
-.player-view button {
-  background: linear-gradient(180deg, #3b2a6e 0%, #1a1235 100%);
-  border: 1px solid rgba(201, 162, 39, 0.4);
-  color: #f0e6c8;
-  padding: 5px 11px;
-  border-radius: 7px;
-  cursor: pointer;
-  font-size: 12px;
-  box-shadow: 0 0 0 1px rgba(123, 92, 255, 0.12), 0 2px 8px rgba(0, 0, 0, 0.35);
-}
-
-.global-controls button:hover,
-.topbar-actions button:hover,
-.folder-toolbar button:hover,
-.settings-block button:hover,
-.back-btn:hover {
-  border-color: rgba(240, 230, 200, 0.55);
-  box-shadow: 0 0 12px rgba(123, 92, 255, 0.35);
-}
-
-button.active {
-  border-color: #c9a227;
-  color: #fff8e0;
-  box-shadow: 0 0 14px rgba(201, 162, 39, 0.4);
-}
-
-button.danger {
-  border-color: rgba(220, 80, 120, 0.55);
-  color: #ffc8d8;
-}
-
-.checkbox input[type="checkbox"] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 15px;
-  height: 15px;
-  margin: 0;
-  border-radius: 4px;
-  border: 1px solid rgba(201, 162, 39, 0.45);
-  background: linear-gradient(180deg, #1a1235, #0c0a14);
-  cursor: pointer;
-  position: relative;
-}
-
-.checkbox input[type="checkbox"]:checked {
-  background: linear-gradient(145deg, #7b5cff, #c9a227);
-  border-color: rgba(240, 230, 200, 0.65);
-}
-
-.checkbox input[type="checkbox"]:checked::after {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: 1px;
-  width: 4px;
-  height: 8px;
-  border: solid #0c0a14;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
 }
