@@ -1,61 +1,29 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import ReactPlayer from 'react-player/youtube'
 import useStore from './store'
+import {
+  computeVolume,
+  isYouTubeUrl,
+  shouldPlay,
+  tracksFromState,
+} from './playback.js'
 
-function clamp01(n) {
-  return Math.max(0, Math.min(1, Number(n) || 0))
-}
-
-function tracksFromState(state) {
-  const list = []
-  ;(state.currentlyStreaming || []).forEach((stream) => {
-    ;(stream.links || []).forEach((link) => {
-      if (!link.url || !/youtu/i.test(link.url)) return
-      list.push({
-        key: stream.id + '::' + link.id,
-        streamId: stream.id,
-        linkId: link.id,
-        url: link.url,
-        loop: link.loop !== false,
-        streamVolume: stream.volume ?? 0.7,
-        linkVolume: link.volume ?? 1,
-        fadeFactor: stream.fadeFactor ?? 1,
-        streamMuted: !!stream.muted,
-        active: true,
-      })
-    })
-  })
-  return list
-}
-
-function computeVolume(state, track) {
-  if (!track || !track.active) return 0
-  if (
-    state.isPaused ||
-    state.gmMuted ||
-    state.localMuted ||
-    !state.audioUnlocked ||
-    track.streamMuted
-  ) {
-    return 0
+function applyYoutube(yt, state, track) {
+  if (!yt) return
+  const vol = computeVolume(state, track)
+  const play = shouldPlay(state, track)
+  try {
+    if (typeof yt.setVolume === 'function') {
+      yt.setVolume(Math.round(vol * 100))
+    }
+    if (vol <= 0) yt.mute?.()
+    else yt.unMute?.()
+    if (play) yt.playVideo?.()
+    else yt.pauseVideo?.()
+  } catch {
+    // ignore
   }
-  const roomMaster =
-    typeof state.roomGlobalVolume === 'number' ? state.roomGlobalVolume : 1
-  const master = state.globalVolume * roomMaster
-  return clamp01(
-    master *
-      (track.streamVolume ?? 0.7) *
-      (track.linkVolume ?? 1) *
-      (track.fadeFactor ?? 1)
-  )
-}
-
-function shouldPlay(state, track) {
-  if (!track || !track.active) return false
-  if (!state.audioUnlocked) return false
-  if (state.isPaused || state.gmMuted || state.localMuted) return false
-  if (track.streamMuted) return false
-  return true
 }
 
 export default function Player() {
@@ -63,9 +31,32 @@ export default function Player() {
   const tracksRef = useRef(new Map())
   const playersRef = useRef(new Map())
   const mountPropsRef = useRef(new Map())
+  const lastKeysRef = useRef([])
 
   useEffect(() => {
+    const reportLinkErrors = (state) => {
+      const { setPlaybackError, clearPlaybackError } = useStore.getState()
+      ;(state.currentlyStreaming || []).forEach((stream) => {
+        ;(stream.links || []).forEach((link) => {
+          if (!link?.url) return
+          const key = stream.id + '::' + link.id
+          if (!isYouTubeUrl(link.url)) {
+            setPlaybackError(
+              key,
+              `Cannot play: ${link.url} (only YouTube links are supported)`
+            )
+          } else {
+            const current = useStore.getState().playbackErrors[key]
+            if (current && current.startsWith('Cannot play:') && current.includes('only YouTube')) {
+              clearPlaybackError(key)
+            }
+          }
+        })
+      })
+    }
+
     const apply = (state) => {
+      reportLinkErrors(state)
       const activeList = tracksFromState(state)
       const activeMap = new Map(activeList.map((t) => [t.key, t]))
 
@@ -75,67 +66,83 @@ export default function Player() {
       })
       activeMap.forEach((t, key) => {
         merged.set(key, { ...t, active: true })
-        if (!mountPropsRef.current.has(key)) {
-          mountPropsRef.current.set(key, { url: t.url, loop: t.loop })
+        const prevMount = mountPropsRef.current.get(key)
+        if (!prevMount) {
+          mountPropsRef.current.set(key, {
+            url: t.url,
+            loop: t.loop,
+            gen: 0,
+          })
+        } else if (prevMount.url !== t.url || prevMount.loop !== t.loop) {
+          mountPropsRef.current.set(key, {
+            url: t.url,
+            loop: t.loop,
+            gen: (prevMount.gen || 0) + 1,
+          })
         }
       })
       tracksRef.current = merged
 
-      const allKeys = Array.from(merged.keys()).sort()
-      setTrackKeys((prev) => {
-        if (
-          prev.length === allKeys.length &&
-          prev.every((k, i) => k === allKeys[i])
-        ) {
-          return prev
-        }
-        const set = new Set(prev)
-        const next = [...prev]
-        allKeys.forEach((k) => {
-          if (!set.has(k)) next.push(k)
-        })
-        return next
+      const nextKeys = []
+      merged.forEach((_t, key) => {
+        const mount = mountPropsRef.current.get(key)
+        nextKeys.push(key + '::g' + (mount?.gen ?? 0))
       })
+      nextKeys.sort()
+
+      const sameKeys =
+        lastKeysRef.current.length === nextKeys.length &&
+        lastKeysRef.current.every((k, i) => k === nextKeys[i])
+      if (!sameKeys) {
+        lastKeysRef.current = nextKeys
+        const updateKeys = () => setTrackKeys(nextKeys)
+        try {
+          flushSync(updateKeys)
+        } catch {
+          updateKeys()
+        }
+      }
 
       merged.forEach((track, key) => {
         const slot = playersRef.current.get(key)
         if (!slot?.ready || !slot.getInternal) return
-        const yt = slot.getInternal()
-        if (!yt) return
-        const vol = computeVolume(state, track)
-        const play = shouldPlay(state, track)
-        try {
-          if (typeof yt.setVolume === 'function') {
-            yt.setVolume(Math.round(vol * 100))
-          }
-          if (vol <= 0) yt.mute?.()
-          else yt.unMute?.()
-          if (play) yt.playVideo?.()
-          else yt.pauseVideo?.()
-        } catch {
-          // ignore
-        }
+        applyYoutube(slot.getInternal(), state, track)
       })
     }
 
     apply(useStore.getState())
     const unsub = useStore.subscribe(apply)
-    return unsub
+    const delayTimer = setInterval(() => {
+      const state = useStore.getState()
+      const needsClock = (state.currentlyStreaming || []).some((s) =>
+        (s.links || []).some((l) => (Number(l.delay) || 0) > 0)
+      )
+      if (needsClock) apply(state)
+    }, 100)
+
+    return () => {
+      unsub()
+      clearInterval(delayTimer)
+    }
   }, [])
 
   return (
-    <div style={{ display: 'none' }} aria-hidden>
-      {trackKeys.map((key) => {
-        const mount = mountPropsRef.current.get(key)
-        const track = tracksRef.current.get(key)
+    <div className="yt-offscreen" aria-hidden>
+      {trackKeys.map((renderKey) => {
+        const trackKey = renderKey.includes('::g')
+          ? renderKey.slice(0, renderKey.lastIndexOf('::g'))
+          : renderKey
+
+        const mount = mountPropsRef.current.get(trackKey)
+        const track = tracksRef.current.get(trackKey)
         if (!mount && !track) return null
         const url = mount?.url || track?.url
         const loop = mount?.loop ?? track?.loop ?? true
-        if (!url) return null
+        if (!url || !isYouTubeUrl(url)) return null
         return (
           <MountedYouTube
-            key={key}
-            trackKey={key}
+            key={renderKey}
+            trackKey={trackKey}
             url={url}
             loop={loop}
             playersRef={playersRef}
@@ -147,7 +154,13 @@ export default function Player() {
   )
 }
 
-function MountedYouTube({ trackKey, url, loop, playersRef, tracksRef }) {
+const MountedYouTube = memo(function MountedYouTube({
+  trackKey,
+  url,
+  loop,
+  playersRef,
+  tracksRef,
+}) {
   const playerRef = useRef(null)
   const [ready, setReady] = useState(false)
   const setPlaybackError = useStore((s) => s.setPlaybackError)
@@ -177,20 +190,7 @@ function MountedYouTube({ trackKey, url, loop, playersRef, tracksRef }) {
     const track = tracksRef.current.get(trackKey)
     if (!track) return
     const yt = playerRef.current?.getInternalPlayer?.()
-    if (!yt) return
-    const vol = computeVolume(state, track)
-    const play = shouldPlay(state, track)
-    try {
-      if (typeof yt.setVolume === 'function') {
-        yt.setVolume(Math.round(vol * 100))
-      }
-      if (vol <= 0) yt.mute?.()
-      else yt.unMute?.()
-      if (play) yt.playVideo?.()
-      else yt.pauseVideo?.()
-    } catch {
-      // ignore
-    }
+    applyYoutube(yt, state, track)
   }
 
   return (
@@ -201,8 +201,8 @@ function MountedYouTube({ trackKey, url, loop, playersRef, tracksRef }) {
       volume={1}
       muted={false}
       loop={loop}
-      width={0}
-      height={0}
+      width={1}
+      height={1}
       progressInterval={2000}
       onReady={() => {
         setReady(true)
@@ -230,4 +230,4 @@ function MountedYouTube({ trackKey, url, loop, playersRef, tracksRef }) {
       }}
     />
   )
-}
+})
