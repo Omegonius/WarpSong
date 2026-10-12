@@ -758,6 +758,7 @@ const useStore = create((set, get) => ({
           const dur = Math.max(0.05, Number(entry.fadeIn) || 0.05)
           const factor = Math.min(1, (entry.fadeFactor ?? 0) + dtSec / dur)
           if (factor >= 0.999) {
+            structureChanged = true
             next.push({
               ...entry,
               fadeFactor: 1,
