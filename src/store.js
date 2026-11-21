@@ -182,7 +182,7 @@ const defaultFolders = () => [
         links: [
           {
             id: 'link-campfire',
-            url: 'https://www.youtube.com/watch?v=ghvLSUXD5pU',
+            url: 'https://www.youtube.com/watch?v=CIj-ZDSjZ2E',
             volume: 1,
             loop: true,
             delay: 0,
@@ -221,35 +221,57 @@ const defaultFolders = () => [
   },
 ]
 
+function safeColor(value, fallback) {
+  const v = String(value ?? '').trim()
+  if (/^#[0-9a-f]{6}$/i.test(v)) return v
+  const m = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(v)
+  return m ? `#${m[1]}${m[1]}${m[2]}${m[2]}${m[3]}${m[3]}` : fallback
+}
+
+/** Keeps imported ids unique (a duplicate id would make two tiles toggle together) */
+function uniqueId(raw, prefix, used) {
+  let id = raw == null ? '' : String(raw).trim()
+  while (!id || used.has(id)) {
+    id = `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+  }
+  used.add(id)
+  return id
+}
+
+const isObject = (v) => v && typeof v === 'object'
+
 function sanitizeFolders(folders) {
   if (!Array.isArray(folders)) return null
-  return folders.map((folder, fi) => ({
-    id: folder.id || `folder-${fi}-${Date.now()}`,
+  const usedFolders = new Set()
+  const usedStreams = new Set()
+  const usedLinks = new Set()
+  return folders.filter(isObject).map((folder) => ({
+    id: uniqueId(folder.id, 'folder', usedFolders),
     name: String(folder.name ?? 'Folder'),
-    color: folder.color || '#7B5CFF',
+    color: safeColor(folder.color, '#7B5CFF'),
     emoji: folder.emoji || '📁',
     collapsed: !!folder.collapsed,
-    streams: Array.isArray(folder.streams)
-      ? folder.streams.map((stream, si) => ({
-          id: stream.id || `stream-${si}-${Date.now()}`,
-          name: String(stream.name ?? 'Stream'),
-          emoji: stream.emoji || '🎵',
-          color: stream.color || '#5C7CFF',
-          volume: clamp01(stream.volume ?? 0.7),
-          fadeIn: Math.max(0, Number(stream.fadeIn) || 0),
-          fadeOut: Math.max(0, Number(stream.fadeOut) || 0),
-          muted: !!stream.muted,
-          links: Array.isArray(stream.links)
-            ? stream.links.map((link, li) => ({
-                id: link.id || `link-${li}-${Date.now()}`,
-                url: String(link.url ?? ''),
-                volume: clamp01(link.volume ?? 1),
-                loop: link.loop !== false,
-                delay: Math.max(0, Number(link.delay) || 0),
-              }))
-            : [],
-        }))
-      : [],
+    streams: (Array.isArray(folder.streams) ? folder.streams : [])
+      .filter(isObject)
+      .map((stream) => ({
+        id: uniqueId(stream.id, 'stream', usedStreams),
+        name: String(stream.name ?? 'Stream'),
+        emoji: stream.emoji || '🎵',
+        color: safeColor(stream.color, '#5C7CFF'),
+        volume: clamp01(stream.volume ?? 0.7),
+        fadeIn: Math.max(0, Number(stream.fadeIn) || 0),
+        fadeOut: Math.max(0, Number(stream.fadeOut) || 0),
+        muted: !!stream.muted,
+        links: (Array.isArray(stream.links) ? stream.links : [])
+          .filter(isObject)
+          .map((link) => ({
+            id: uniqueId(link.id, 'link', usedLinks),
+            url: String(link.url ?? '').trim(),
+            volume: clamp01(link.volume ?? 1),
+            loop: link.loop !== false,
+            delay: Math.max(0, Number(link.delay) || 0),
+          })),
+      })),
   }))
 }
 
