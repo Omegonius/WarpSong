@@ -1,5 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
-import { flushSync } from 'react-dom'
+import { memo, useEffect, useMemo, useState } from 'react'
 import ReactPlayer from 'react-player/youtube'
 import useStore from './store'
 import {
@@ -9,144 +8,116 @@ import {
   tracksFromState,
 } from './playback.js'
 
-function applyYoutube(yt, state, track) {
-  if (!yt) return
-  const vol = computeVolume(state, track)
-  const play = shouldPlay(state, track)
-  try {
-    if (typeof yt.setVolume === 'function') {
-      yt.setVolume(Math.round(vol * 100))
-    }
-    if (vol <= 0) yt.mute?.()
-    else yt.unMute?.()
-    if (play) yt.playVideo?.()
-    else yt.pauseVideo?.()
-  } catch {
-    // ignore
-  }
+// No `autoplay` here: the `playing` prop decides when a track starts
+const PLAYER_CONFIG = {
+  youtube: {
+    playerVars: {
+      controls: 0,
+      disablekb: 1,
+      fs: 0,
+      modestbranding: 1,
+      rel: 0,
+      playsinline: 1,
+    },
+  },
 }
 
+const YT_ERRORS = {
+  2: 'invalid video link',
+  5: 'player error, try again',
+  100: 'video removed or private',
+  101: 'embedding disabled by the owner',
+  150: 'embedding disabled by the owner',
+}
+
+function canPlayUrl(url) {
+  if (!isYouTubeUrl(url)) return false
+  return typeof ReactPlayer.canPlay === 'function'
+    ? ReactPlayer.canPlay(url)
+    : true
+}
+
+function errorText(url, e) {
+  const code = typeof e === 'number' ? e : e?.data
+  const why = YT_ERRORS[code] || 'private, blocked, or unavailable'
+  return `Cannot play: ${url || 'invalid link'} (${why})`
+}
+
+/**
+ * Declarative player: every active track is one mounted <ReactPlayer>.
+ * Volume / play / mute are plain props, so the iframe is only touched when
+ * a value really changes. A track that leaves the list is unmounted, which
+ * destroys its YouTube iframe (no leftover iframes after Stop).
+ */
 export default function Player() {
-  const [trackKeys, setTrackKeys] = useState([])
-  const tracksRef = useRef(new Map())
-  const playersRef = useRef(new Map())
-  const mountPropsRef = useRef(new Map())
-  const lastKeysRef = useRef([])
+  const currentlyStreaming = useStore((s) => s.currentlyStreaming)
+  const isPaused = useStore((s) => s.isPaused)
+  const gmMuted = useStore((s) => s.gmMuted)
+  const localMuted = useStore((s) => s.localMuted)
+  const audioUnlocked = useStore((s) => s.audioUnlocked)
+  const globalVolume = useStore((s) => s.globalVolume)
+  const roomGlobalVolume = useStore((s) => s.roomGlobalVolume)
 
+  // Links that can never play (not a YouTube video link)
   useEffect(() => {
-    const reportLinkErrors = (state) => {
-      const { setPlaybackError, clearPlaybackError } = useStore.getState()
-      ;(state.currentlyStreaming || []).forEach((stream) => {
-        ;(stream.links || []).forEach((link) => {
-          if (!link?.url) return
-          const key = stream.id + '::' + link.id
-          if (!isYouTubeUrl(link.url)) {
-            setPlaybackError(
-              key,
-              `Cannot play: ${link.url} (only YouTube links are supported)`
-            )
-          } else {
-            const current = useStore.getState().playbackErrors[key]
-            if (current && current.startsWith('Cannot play:') && current.includes('only YouTube')) {
-              clearPlaybackError(key)
-            }
+    const { setPlaybackError, clearPlaybackError } = useStore.getState()
+    currentlyStreaming.forEach((stream) => {
+      ;(stream.links || []).forEach((link) => {
+        if (!link?.url) return
+        const key = stream.id + '::' + link.id
+        if (!canPlayUrl(link.url)) {
+          setPlaybackError(
+            key,
+            `Cannot play: ${link.url} (not a valid YouTube video link)`
+          )
+        } else {
+          const current = useStore.getState().playbackErrors[key]
+          if (current && current.includes('not a valid YouTube')) {
+            clearPlaybackError(key)
           }
-        })
-      })
-    }
-
-    const apply = (state) => {
-      reportLinkErrors(state)
-      const activeList = tracksFromState(state)
-      const activeMap = new Map(activeList.map((t) => [t.key, t]))
-
-      const merged = new Map(tracksRef.current)
-      merged.forEach((t, key) => {
-        merged.set(key, { ...t, active: false })
-      })
-      activeMap.forEach((t, key) => {
-        merged.set(key, { ...t, active: true })
-        const prevMount = mountPropsRef.current.get(key)
-        if (!prevMount) {
-          mountPropsRef.current.set(key, {
-            url: t.url,
-            loop: t.loop,
-            gen: 0,
-          })
-        } else if (prevMount.url !== t.url || prevMount.loop !== t.loop) {
-          mountPropsRef.current.set(key, {
-            url: t.url,
-            loop: t.loop,
-            gen: (prevMount.gen || 0) + 1,
-          })
         }
       })
-      tracksRef.current = merged
+    })
+  }, [currentlyStreaming])
 
-      const nextKeys = []
-      merged.forEach((_t, key) => {
-        const mount = mountPropsRef.current.get(key)
-        nextKeys.push(key + '::g' + (mount?.gen ?? 0))
-      })
-      nextKeys.sort()
+  const tracks = useMemo(
+    () =>
+      tracksFromState({ currentlyStreaming }).filter((t) => canPlayUrl(t.url)),
+    [currentlyStreaming]
+  )
 
-      const sameKeys =
-        lastKeysRef.current.length === nextKeys.length &&
-        lastKeysRef.current.every((k, i) => k === nextKeys[i])
-      if (!sameKeys) {
-        lastKeysRef.current = nextKeys
-        const updateKeys = () => setTrackKeys(nextKeys)
-        try {
-          flushSync(updateKeys)
-        } catch {
-          updateKeys()
-        }
-      }
+  // Clock is only needed for links with a start delay
+  const needsClock = tracks.some((t) => t.delay > 0)
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!needsClock) return undefined
+    setNow(Date.now())
+    const id = setInterval(() => setNow(Date.now()), 250)
+    return () => clearInterval(id)
+  }, [needsClock])
 
-      merged.forEach((track, key) => {
-        const slot = playersRef.current.get(key)
-        if (!slot?.ready || !slot.getInternal) return
-        applyYoutube(slot.getInternal(), state, track)
-      })
-    }
-
-    apply(useStore.getState())
-    const unsub = useStore.subscribe(apply)
-    const delayTimer = setInterval(() => {
-      const state = useStore.getState()
-      const needsClock = (state.currentlyStreaming || []).some((s) =>
-        (s.links || []).some((l) => (Number(l.delay) || 0) > 0)
-      )
-      if (needsClock) apply(state)
-    }, 100)
-
-    return () => {
-      unsub()
-      clearInterval(delayTimer)
-    }
-  }, [])
+  const gate = {
+    isPaused,
+    gmMuted,
+    localMuted,
+    audioUnlocked,
+    globalVolume,
+    roomGlobalVolume,
+  }
 
   return (
     <div className="yt-offscreen" aria-hidden>
-      {trackKeys.map((renderKey) => {
-        const trackKey = renderKey.includes('::g')
-          ? renderKey.slice(0, renderKey.lastIndexOf('::g'))
-          : renderKey
-
-        const mount = mountPropsRef.current.get(trackKey)
-        const track = tracksRef.current.get(trackKey)
-        if (!mount && !track) return null
-        const url = mount?.url || track?.url
-        const loop = mount?.loop ?? track?.loop ?? true
-        if (!url || !isYouTubeUrl(url)) return null
+      {tracks.map((track) => {
+        const volume = Math.round(computeVolume(gate, track, now) * 100) / 100
+        const playing = shouldPlay(gate, track, now)
         return (
-          <MountedYouTube
-            key={renderKey}
-            trackKey={trackKey}
-            url={url}
-            loop={loop}
-            playersRef={playersRef}
-            tracksRef={tracksRef}
+          <TrackPlayer
+            key={`${track.key}|${track.url}|${track.loop ? 1 : 0}`}
+            trackKey={track.key}
+            url={track.url}
+            loop={track.loop}
+            volume={volume}
+            playing={playing}
           />
         )
       })}
@@ -154,80 +125,31 @@ export default function Player() {
   )
 }
 
-const MountedYouTube = memo(function MountedYouTube({
+const TrackPlayer = memo(function TrackPlayer({
   trackKey,
   url,
   loop,
-  playersRef,
-  tracksRef,
+  volume,
+  playing,
 }) {
-  const playerRef = useRef(null)
-  const [ready, setReady] = useState(false)
   const setPlaybackError = useStore((s) => s.setPlaybackError)
   const clearPlaybackError = useStore((s) => s.clearPlaybackError)
 
-  useEffect(() => {
-    playersRef.current.set(trackKey, {
-      ready: false,
-      getInternal: () => playerRef.current?.getInternalPlayer?.() ?? null,
-    })
-    return () => {
-      playersRef.current.delete(trackKey)
-    }
-  }, [trackKey, playersRef])
-
-  useEffect(() => {
-    const slot = playersRef.current.get(trackKey)
-    if (slot) {
-      slot.ready = ready
-      slot.getInternal = () =>
-        playerRef.current?.getInternalPlayer?.() ?? null
-    }
-  }, [ready, trackKey, playersRef])
-
-  const applyNow = () => {
-    const state = useStore.getState()
-    const track = tracksRef.current.get(trackKey)
-    if (!track) return
-    const yt = playerRef.current?.getInternalPlayer?.()
-    applyYoutube(yt, state, track)
-  }
+  useEffect(() => () => clearPlaybackError(trackKey), [trackKey, clearPlaybackError])
 
   return (
     <ReactPlayer
-      ref={playerRef}
       url={url}
-      playing={true}
-      volume={1}
-      muted={false}
+      playing={playing}
+      volume={volume}
+      muted={volume <= 0}
       loop={loop}
       width={1}
       height={1}
-      progressInterval={2000}
-      onReady={() => {
-        setReady(true)
-        clearPlaybackError(trackKey)
-        setTimeout(applyNow, 80)
-      }}
-      onError={() => {
-        setPlaybackError(
-          trackKey,
-          `Cannot play: ${url || 'invalid link'} (private, blocked, or unavailable)`
-        )
-      }}
-      config={{
-        youtube: {
-          playerVars: {
-            autoplay: 1,
-            controls: 0,
-            disablekb: 1,
-            fs: 0,
-            modestbranding: 1,
-            rel: 0,
-            playsinline: 1,
-          },
-        },
-      }}
+      progressInterval={10000}
+      onReady={() => clearPlaybackError(trackKey)}
+      onError={(e) => setPlaybackError(trackKey, errorText(url, e))}
+      config={PLAYER_CONFIG}
     />
   )
 })
