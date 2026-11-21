@@ -57,7 +57,8 @@ function App() {
   const [view, setView] = useState('home')
   const [activeFolderId, setActiveFolderId] = useState(null)
   const [activeStreamId, setActiveStreamId] = useState(null)
-
+  const [importError, setImportError] = useState('')
+  
   const folders = useStore((s) => s.folders)
   const playingStreams = useStore((s) => s.playingStreams)
   const currentlyStreaming = useStore((s) => s.currentlyStreaming)
@@ -102,8 +103,14 @@ function App() {
     const a = document.createElement('a')
     a.href = url
     a.download = 'warpsong.json'
+    a.style.display = 'none'
+    document.body.appendChild(a)
     a.click()
-    URL.revokeObjectURL(url)
+    // Revoking right away cancels the download in Firefox/Safari
+    setTimeout(() => {
+      a.remove()
+      URL.revokeObjectURL(url)
+    }, 1500)
   }
 
   const handleLoad = () => {
@@ -114,18 +121,28 @@ function App() {
       const file = e.target.files?.[0]
       if (!file) return
       const reader = new FileReader()
+      reader.onerror = () => setImportError('Could not read the file')
       reader.onload = () => {
+        let parsed
         try {
-          const parsed = JSON.parse(reader.result)
-          const result = useStore.getState().importData(parsed)
-          if (!result.ok) alert(result.error || 'Invalid file')
-          else {
-            setView('home')
-            setActiveFolderId(null)
-            setActiveStreamId(null)
-          }
+          parsed = JSON.parse(reader.result)
         } catch {
-          alert('Invalid file: not JSON')
+          setImportError('Invalid file: not valid JSON')
+          return
+        }
+        try {
+          const result = useStore.getState().importData(parsed)
+          if (!result.ok) {
+            setImportError(result.error || 'Invalid file')
+            return
+          }
+          setImportError('')
+          setView('home')
+          setActiveFolderId(null)
+          setActiveStreamId(null)
+        } catch (err) {
+          console.warn('WarpSong import failed', err)
+          setImportError('Invalid file: unexpected structure')
         }
       }
       reader.readAsText(file)
@@ -276,7 +293,17 @@ function App() {
       </div>
 
       <ErrorBanner />
-
+      
+      {importError && (
+        <div className="error-banner">
+          <div className="error-item">
+            <span>{importError}</span>
+            <button type="button" onClick={() => setImportError('')}>
+              ×
+            </button>
+          </div>
+        </div>
+      )}
       <div className="global-controls">
         <button
           type="button"
