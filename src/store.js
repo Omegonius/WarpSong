@@ -851,10 +851,11 @@ const useStore = create((set, get) => ({
   },
 
   importData: (data) => {
-    if (!data || !data.folders) {
+    const rawFolders = Array.isArray(data) ? data : data?.folders
+    if (!rawFolders) {
       return { ok: false, error: 'Invalid file: missing folders' }
     }
-    const folders = sanitizeFolders(data.folders)
+    const folders = sanitizeFolders(rawFolders)
     if (!folders) {
       return { ok: false, error: 'Invalid file: bad folders format' }
     }
@@ -864,8 +865,6 @@ const useStore = create((set, get) => ({
       currentlyStreaming: [],
       roomStreaming: [],
       isPaused: false,
-      gmMuted: false,
-      isLocalOnly: false,
       playbackErrors: {},
     })
     return { ok: true }
