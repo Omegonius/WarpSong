@@ -360,6 +360,14 @@ function rebuildFromFolders(folders, playingStreams, prevList = []) {
   return list
 }
 
+/** Fade-outs this client has already finished: stream id -> startedAt of that run */
+const endedFades = new Map()
+
+function rememberEndedFade(entry) {
+  endedFades.set(entry.id, entry.startedAt || null)
+  if (endedFades.size > 50) endedFades.delete(endedFades.keys().next().value)
+}
+
 function mergeRemotePlayback(remoteList, localList) {
   const localById = {}
   localList.forEach((e) => {
@@ -371,6 +379,14 @@ function mergeRemotePlayback(remoteList, localList) {
 
   remoteList.forEach((remote) => {
     if (!remote || !remote.id) return
+    // This client already finished fading this run out: a stale snapshot must not bring it back
+    if (
+      remote.fadingOut &&
+      !localById[remote.id] &&
+      endedFades.get(remote.id) === (remote.startedAt || null)
+    ) {
+      return
+    }
     const local = localById[remote.id]
     const fadingOut = !!remote.fadingOut
     const fadingIn = !!remote.fadingIn
@@ -759,7 +775,7 @@ const useStore = create((set, get) => ({
       if (!state.currentlyStreaming.length) return state
       let changed = false
       let structureChanged = false
-      const playingStreams = { ...state.playingStreams }
+      let playingStreams = state.playingStreams
       const next = []
 
       state.currentlyStreaming.forEach((entry) => {
@@ -768,7 +784,11 @@ const useStore = create((set, get) => ({
           const dur = Math.max(0.05, Number(entry.fadeOut) || 0.05)
           const factor = Math.max(0, (entry.fadeFactor ?? 1) - dtSec / dur)
           if (factor <= 0.001) {
+            if (playingStreams === state.playingStreams) {
+              playingStreams = { ...playingStreams }
+            }
             delete playingStreams[entry.id]
+            rememberEndedFade(entry)
             structureChanged = true
             return
           }
