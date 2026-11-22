@@ -5,6 +5,7 @@ import Player from './Player'
 import MetadataSync from './MetadataSync'
 import FadeEngine from './FadeEngine'
 import AutoplayUnlock from './AutoplayUnlock'
+import { canPlayUrl } from './youtube.js'
 import './index.css'
 
 const STREAM_EMOJIS = [
@@ -50,6 +51,65 @@ function ErrorBanner() {
     </div>
   )
 }
+/** Two-step delete without window.confirm (native dialogs can be blocked inside the iframe) */
+function ConfirmButton({ label, onConfirm, className }) {
+  const [armed, setArmed] = useState(false)
+  useEffect(() => {
+    if (!armed) return undefined
+    const id = setTimeout(() => setArmed(false), 3000)
+    return () => clearTimeout(id)
+  }, [armed])
+  return (
+    <button
+      type="button"
+      className={className}
+      onClick={() => {
+        if (armed) {
+          setArmed(false)
+          onConfirm()
+        } else {
+          setArmed(true)
+        }
+      }}
+    >
+      {armed ? 'Click again to delete' : label}
+    </button>
+  )
+}
+
+/** URL field: applies the link after a short pause / on blur / Enter, not on every keystroke */
+function UrlInput({ value, onCommit }) {
+  const [text, setText] = useState(value)
+  useEffect(() => {
+    setText(value)
+  }, [value])
+
+  const trimmed = text.trim()
+  useEffect(() => {
+    if (trimmed === value) return undefined
+    const id = setTimeout(() => onCommit(trimmed), 600)
+    return () => clearTimeout(id)
+  }, [trimmed, value]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const invalid = trimmed !== '' && !canPlayUrl(trimmed)
+  return (
+    <>
+      <input
+        className={`url-input${invalid ? ' invalid' : ''}`}
+        placeholder="https://youtube.com/watch?v=..."
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          if (trimmed !== value) onCommit(trimmed)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur()
+        }}
+      />
+      {invalid && <div className="field-hint">Not a valid YouTube video link</div>}
+    </>
+  )
+}
 
 function App() {
   const [ready, setReady] = useState(false)
@@ -69,19 +129,31 @@ function App() {
   const localMuted = useStore((s) => s.localMuted)
 
   useEffect(() => {
+    let disposed = false
+    let unsubscribe = null
     OBR.onReady(async () => {
       const playerRole = await OBR.player.getRole()
+      if (disposed) return
 
-      OBR.room.onMetadataChange((metadata) => {
+      // Other extensions also write room metadata: skip updates that don't change our data
+      let lastApplied = ''
+      const applyIfChanged = (data, opts) => {
+        const json = JSON.stringify(data)
+        if (json === lastApplied) return
+        lastApplied = json
+        useStore.getState().applyRemoteState(data, opts)
+      }
+
+      unsubscribe = OBR.room.onMetadataChange((metadata) => {
         if (playerRole === 'GM') return
         const data = metadata['warpsong']
-        if (data) useStore.getState().applyRemoteState(data)
+        if (data) applyIfChanged(data)
       })
 
       try {
         const current = await OBR.room.getMetadata()
         if (current['warpsong']) {
-          useStore.getState().applyRemoteState(current['warpsong'], {
+          applyIfChanged(current['warpsong'], {
             hydrateMaster: playerRole === 'GM',
           })
         }
@@ -92,6 +164,10 @@ function App() {
       setRole(playerRole)
       setReady(true)
     })
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
   }, [])
 
   const handleSave = () => {
@@ -403,19 +479,15 @@ function App() {
               placeholder="Folder name"
             />
             <button type="button" onClick={openFolderVisual}>Look</button>
-            <button
-              type="button"
+            <ConfirmButton
               className="danger"
-              onClick={() => {
-                if (window.confirm(`Delete folder "${activeFolder.name}"?`)) {
-                  useStore.getState().deleteFolder(activeFolder.id)
-                  setView('home')
-                  setActiveFolderId(null)
-                }
+              label="Delete"
+              onConfirm={() => {
+                useStore.getState().deleteFolder(activeFolder.id)
+                setView('home')
+                setActiveFolderId(null)
               }}
-            >
-              Delete
-            </button>
+            />
           </div>
           <div className="grid">
             {activeFolder.streams.map((stream) => {
@@ -446,11 +518,10 @@ function App() {
                     className="tile-main"
                     onClick={() => useStore.getState().toggleStream(stream.id)}
                   >
-                    <div className="tile-emoji">
-                      {fading ? '🔉' : isPlaying ? '🔊' : stream.emoji || '🎵'}
-                    </div>
+                    <div className="tile-emoji">{stream.emoji || '🎵'}</div>
                     <div className="tile-name">{stream.name}</div>
                     <div className="tile-meta">
+                      {fading ? 'fading out · ' : isPlaying ? 'playing · ' : ''}
                       {stream.muted ? 'muted · ' : ''}
                       {stream.links.length} link{stream.links.length === 1 ? '' : 's'}
                     </div>
@@ -603,19 +674,15 @@ function App() {
                 />
               </label>
             </div>
-            <button
-              type="button"
+            <ConfirmButton
               className="danger"
-              onClick={() => {
-                if (window.confirm(`Delete stream "${activeStream.name}"?`)) {
-                  useStore.getState().deleteStream(activeFolder.id, activeStream.id)
-                  setView('folder')
-                  setActiveStreamId(null)
-                }
+              label="Delete Stream"
+              onConfirm={() => {
+                useStore.getState().deleteStream(activeFolder.id, activeStream.id)
+                setView('folder')
+                setActiveStreamId(null)
               }}
-            >
-              Delete Stream
-            </button>
+            />
           </div>
 
           <div className="settings-block">
@@ -648,16 +715,14 @@ function App() {
                     ×
                   </button>
                 </div>
-                <input
-                  className="url-input"
-                  placeholder="https://youtube.com/watch?v=..."
+                <UrlInput
                   value={link.url}
-                  onChange={(e) =>
+                  onCommit={(url) =>
                     useStore.getState().updateLink(
                       activeFolder.id,
                       activeStream.id,
                       link.id,
-                      { url: e.target.value }
+                      { url }
                     )
                   }
                 />
