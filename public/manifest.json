@@ -4,10 +4,10 @@
   "manifest_version": 1,
   "author": "Omegonius",
   "description": "Mix sound effects and music with looping, fading, and more for Owlbear Rodeo",
-  "icon": "/icon.svg",
+  "icon": "/icon.png",
   "action": {
     "title": "WarpSong",
-    "icon": "/icon.svg",
+    "icon": "/icon.png",
     "popover": "/",
     "height": 420,
     "width": 600
