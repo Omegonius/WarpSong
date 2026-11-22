@@ -8,19 +8,31 @@ import {
   shouldPlay,
   tracksFromState,
 } from './playback.js'
+import { canPlayUrl } from './youtube.js'
 
+// YouTube player states: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
 function applyYoutube(yt, state, track) {
   if (!yt) return
   const vol = computeVolume(state, track)
   const play = shouldPlay(state, track)
+  const target = Math.round(vol * 100)
   try {
-    if (typeof yt.setVolume === 'function') {
-      yt.setVolume(Math.round(vol * 100))
+    // Only talk to the iframe when the player's own state differs from what we want
+    if (typeof yt.getVolume !== 'function' || yt.getVolume() !== target) {
+      yt.setVolume?.(target)
     }
-    if (vol <= 0) yt.mute?.()
-    else yt.unMute?.()
-    if (play) yt.playVideo?.()
-    else yt.pauseVideo?.()
+    const muted = typeof yt.isMuted === 'function' ? yt.isMuted() : null
+    if (vol <= 0) {
+      if (muted !== true) yt.mute?.()
+    } else if (muted !== false) {
+      yt.unMute?.()
+    }
+    const st = typeof yt.getPlayerState === 'function' ? yt.getPlayerState() : null
+    if (play) {
+      if (st !== 1 && st !== 3) yt.playVideo?.()
+    } else if (st !== 2) {
+      yt.pauseVideo?.()
+    }
   } catch {
     // ignore
   }
@@ -40,14 +52,14 @@ export default function Player() {
         ;(stream.links || []).forEach((link) => {
           if (!link?.url) return
           const key = stream.id + '::' + link.id
-          if (!isYouTubeUrl(link.url)) {
+          if (!canPlayUrl(link.url)) {
             setPlaybackError(
               key,
-              `Cannot play: ${link.url} (only YouTube links are supported)`
+              `Cannot play: ${link.url} (not a valid YouTube video link)`
             )
           } else {
             const current = useStore.getState().playbackErrors[key]
-            if (current && current.startsWith('Cannot play:') && current.includes('only YouTube')) {
+            if (current && current.includes('not a valid YouTube')) {
               clearPlaybackError(key)
             }
           }
@@ -106,7 +118,20 @@ export default function Player() {
       merged.forEach((track, key) => {
         const slot = playersRef.current.get(key)
         if (!slot?.ready || !slot.getInternal) return
-        applyYoutube(slot.getInternal(), state, track)
+        const yt = slot.getInternal()
+        // Stream started again (stop -> play): begin from the start, not where it was paused
+        if (track.active && track.startedAt && slot.startedAt !== track.startedAt) {
+          if (slot.startedAt) {
+            try {
+              // live streams have no "start": leave them where they are
+              if (!yt?.getVideoData?.()?.isLive) yt?.seekTo?.(0, true)
+            } catch {
+              // ignore
+            }
+          }
+          slot.startedAt = track.startedAt
+        }
+        applyYoutube(yt, state, track)
       })
     }
 
@@ -209,10 +234,19 @@ const MountedYouTube = memo(function MountedYouTube({
         clearPlaybackError(trackKey)
         setTimeout(applyNow, 80)
       }}
-      onError={() => {
+      onError={(code) => {
+        const c = typeof code === 'number' ? code : code?.data
+        const why =
+          c === 101 || c === 150
+            ? 'embedding disabled by the owner'
+            : c === 100
+              ? 'video removed or private'
+              : c === 2
+                ? 'invalid video link'
+                : 'private, blocked, or unavailable'
         setPlaybackError(
           trackKey,
-          `Cannot play: ${url || 'invalid link'} (private, blocked, or unavailable)`
+          `Cannot play: ${url || 'invalid link'} (${why})`
         )
       }}
       config={{
